@@ -16,7 +16,7 @@
   - 完了状態：1回の操作で開発用とテスト用のデータベースが起動し、設定ファイルの接続先で接続できる
   - _Requirements: 9.1_
 
-- [ ] 1.3 API を公開用と社内用の2つの待ち受け口で起動し、共通の仕組みを入れる
+- [x] 1.3 API を公開用と社内用の2つの待ち受け口で起動し、共通の仕組みを入れる
   - 1つのプロセスで、公開用（宿泊客向け）と社内用（スタッフ向け）の2つの待ち受け口を立て、それぞれに別の機能群を載せられるようにする
   - 業務エラーを契約のエラーの形に変換する仕組み、要求ごとのログ（個人情報を出さない）、日本時間に固定した時計（テストで時刻を差し替えられる）を入れる
   - 完了状態：2つの待ち受け口がそれぞれ稼働確認の応答を返し、公開用の待ち受け口では社内用の稼働確認の URL が「見つからない」になり、テストで時計を任意の時刻に固定できる
@@ -104,6 +104,7 @@
   - 会員とスタッフで別の種類のセッションをデータベースに保存し、Cookie（HttpOnly・Secure・SameSite）で受け渡す。ログインの成功時に ID を作り直す
   - 会員用・スタッフ用の認証の確認、役割の判定（管理者＞フロント＞清掃員）、他サイトからの要求の拒否（独自のヘッダー）、ログインの回数制限、パスワードのハッシュ化を入れる
   - 公開用の待ち受け口はスタッフのセッションを受け付けない
+  - 公開用 API の要求の言語を決め（Accept-Language、ログイン中は会員の preferred_locale）、ApiError の message をその言語で作る仕組みを入れる（design.md L-11。1.3 の実装で担当が決まっていないことが分かったため、ここに加えた）。要求のログの userType に MEMBER・STAFF を入れる
   - 完了状態：清掃員のセッションでフロント以上の操作を呼ぶと「権限がない」、管理者だけの操作をフロントが呼ぶと「権限がない」になる結合テストが通る
   - _Requirements: 1.10, 2.1, 2.2, 2.4, 2.5_
 
@@ -526,3 +527,8 @@
 - 1.1：ルートの test は `vitest run --passWithNoTests`。全パッケージにテストができたら（1.3・1.6 の後）`--passWithNoTests` を外す
 - 1.1：検証のコマンドは `pnpm check`（全パッケージの型の検査＋テスト）と `pnpm format:check`
 - 1.1：TOKEN_INVALID の HTTP ステータスを 400 に決めた（design.md L-51。Error Handling の表の漏れ）
+- 1.3：API のビルドは Vite 7 の SSR ビルド＋unplugin-swc（デコレーターの型情報のため SWC で変換）。contracts は ssr.noExternal で dist/main.js（CommonJS）に束ねる。`pnpm --filter @hotel/api build` の後に `start`。テストも apps/api/vite.config.mts を使う（vitest の project 名は api）
+- 1.3：稼働確認は GET /api/guest/health と /api/staff/health。要求 ID のヘッダーは X-Request-Id。ログは JSON 1行（requestId・listener・userType・method・クエリを除いた path・status・result・durationMs）で、本文・クエリ・ヘッダー・IP は出さない。URL の途中や例外の文言に個人情報を入れないこと（想定外の例外は文言とスタックがサーバーのログに出る）
+- 1.3：業務エラーは shared/errors の BusinessError（または Result を unwrapResult）で投げる。HTTP ステータスは常に contracts の ERROR_HTTP_STATUS。時計は BusinessClock を注入して使い、src で new Date() を直接使わない（テストは FixedBusinessClock で固定）
+- 1.3：2つの待ち受け口は別々の DI コンテナなので、プロバイダーは待ち受け口ごとに作られる。1.4 の PrismaService（接続プールが2つになる）と 3.2 の定時処理（社内用だけに載せる）で考慮すること
+- 1.3：L-11（公開用 API の文言を選んだ言語で作る）は 3.1 の担当に加えた
