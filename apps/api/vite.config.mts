@@ -4,7 +4,7 @@
 // - 契約パッケージ（@hotel/contracts）は TypeScript のソースのまま共有しているため、
 //   ビルドでは dist/main.js に束ねる。それ以外の依存（NestJS・zod など）は束ねず、実行時に読み込む。
 import swc from 'unplugin-swc';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [swc.vite({ jsc: { target: 'es2023' } })],
@@ -26,6 +26,8 @@ export default defineConfig({
   test: {
     name: 'api',
     include: ['src/**/*.test.ts'],
+    // データベースを使う結合テストは pnpm test:integration（vitest.integration.config.mts）で実行する
+    exclude: [...configDefaults.exclude, 'src/**/*.integration.test.ts'],
     environment: 'node',
   },
 });

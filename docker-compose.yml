@@ -1,0 +1,53 @@
+# Docker Compose の定義（design.md Technology Stack・File Structure Plan）。
+# いまはデータベースだけを置く（API と nginx はタスク 11.1 で加える）。
+#
+#   pnpm db:up    開発用（postgres）とテスト用（postgres-test）のデータベースを起動し、使えるようになるまで待つ
+#   pnpm db:down  両方を止めて削除する（開発用のデータは volume に残る。消すときは docker compose --profile test down -v）
+#
+# 利用者名・パスワードなどは、リポジトリの最上位の .env から読む（.env.example をコピーして作る）。
+# ポートはこの PC の中（127.0.0.1）からだけ接続できるようにする。
+name: hotel-reserve-system
+
+# 稼働確認（2つのデータベースで共通）。初期化の途中の一時的なサーバーは TCP で待ち受けないので、
+# -h 127.0.0.1 を付けて、初期化が終わった後のサーバーが接続を受け付けるまで待つ
+x-postgres-healthcheck: &postgres-healthcheck
+  test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+  interval: 5s
+  timeout: 5s
+  retries: 10
+  start_period: 30s
+  start_interval: 1s
+
+services:
+  # 開発用のデータベース（データは volume に保存し、止めても残る）
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?.env に POSTGRES_USER を設定してください（.env.example を参照）}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env に POSTGRES_PASSWORD を設定してください（.env.example を参照）}
+      POSTGRES_DB: ${POSTGRES_DB:?.env に POSTGRES_DB を設定してください（.env.example を参照）}
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck: *postgres-healthcheck
+
+  # 結合テスト用のデータベース（開発用とは別のサーバー）。
+  # データはメモリ（tmpfs）に置き、止めると消える。速さのため、障害時の保全（fsync など）を切っている。
+  # 本番のサーバーでは起動しないよう、profile を test にしている（pnpm db:up はサービス名を指定して起動する）。
+  postgres-test:
+    image: postgres:17
+    profiles: [test]
+    command: [postgres, -c, fsync=off, -c, synchronous_commit=off, -c, full_page_writes=off]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?.env に POSTGRES_USER を設定してください（.env.example を参照）}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env に POSTGRES_PASSWORD を設定してください（.env.example を参照）}
+      POSTGRES_DB: ${POSTGRES_TEST_DB:?.env に POSTGRES_TEST_DB を設定してください（.env.example を参照）}
+    ports:
+      - '127.0.0.1:${POSTGRES_TEST_PORT:-5433}:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck: *postgres-healthcheck
+
+volumes:
+  postgres-data:

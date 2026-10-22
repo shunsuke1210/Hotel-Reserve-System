@@ -3,3 +3,8 @@ dist/
 coverage/
 *.tsbuildinfo
 *.log
+
+# 環境設定（接続先・秘密の値）。Git に入れるのはひな形の .env.example だけ
+.env
+.env.*
+!.env.example

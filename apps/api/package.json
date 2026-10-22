@@ -5,7 +5,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "build": "vite build",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test:integration": "vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "@date-fns/tz": "catalog:",
@@ -22,7 +23,9 @@
     "@swc/core": "catalog:",
     "@types/express": "catalog:",
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "@types/supertest": "catalog:",
+    "pg": "catalog:",
     "supertest": "catalog:",
     "typescript": "catalog:",
     "unplugin-swc": "catalog:"

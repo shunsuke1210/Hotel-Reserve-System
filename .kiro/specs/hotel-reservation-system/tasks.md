@@ -10,7 +10,7 @@
   - 完了状態：リポジトリの最上位から、全パッケージの型の検査とテストを1回の操作で実行でき、すべて成功する
   - _Requirements: 1.10, 2.4_
 
-- [ ] 1.2 開発用のデータベースと環境設定を用意する
+- [x] 1.2 開発用のデータベースと環境設定を用意する
   - PostgreSQL 17 を1回の操作で起動できるようにし、接続先や秘密の値を環境ごとの設定ファイルから読み込む
   - 結合テスト用のデータベースを、開発用とは別に用意する
   - 完了状態：1回の操作で開発用とテスト用のデータベースが起動し、設定ファイルの接続先で接続できる
@@ -544,3 +544,8 @@
 - 1.7：模擬の振る舞いは識別子の形で決まる（トークン `mock_tok_{下4桁}_…`、決済 `mock_ch_{下4桁}_…`、返金 `mock_re_…`）。テストの前提は registerCard・charge を通して作る（独自の payment_token は決済が拒否、独自の provider_ref は返金で例外になる）。再起動すると決済の記録は消える
 - 1.7：テスト用の差し替え部品は integrations/testing/（TestPaymentGateway.force・clearForced で結果を固定、TestMailSender.failWith で送信を失敗させる）。模擬のメールはメモリに直近100通を残すだけで、mail_outbox を SENT にするのは 3.4 の outbox の処理
 - 1.7：冪等キーが同じなら、額やカードが違っても前回の結果（成功・拒否）を返す（L-15）。一時的な障害は覚えない（同じキーで再試行できる。L-50）。返金の合計がもとの決済額を超えないかは、課金のタスクで確かめる
+- 1.2：`pnpm db:up` で開発用（127.0.0.1:5432、DB hotel）とテスト用（127.0.0.1:5433、DB hotel_test、別のコンテナ。tmpfs で止めると消える）の PostgreSQL 17 が起動する。`pnpm db:down` で止める（`--profile test` が必要なので素の `docker compose down` は使わない）。Git Bash では先に `export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"` が要る場合がある
+- 1.2：DB を使うテストは `*.integration.test.ts` に書き、`pnpm test:integration`（apps/api/vitest.integration.config.mts）で実行する。`pnpm check` は DB なしで動く。検証のコマンドは `pnpm check`・`pnpm test:integration`・`pnpm format:check`
+- 1.2：設定は apps/api/src/shared/config/app-config.ts の loadConfig（zod で検証）。読み込みの順序は `.env` → `.env.{APP_ENV}` → 環境変数（APP_ENV は development・test・production。NODE_ENV は使わない）。test では TEST_DATABASE_URL を使い、開発用と同じ DB なら止まる。エラーの文言に値を出さない。ファイルはリポジトリの最上位（.env は Git の対象外、.env.example だけを管理する）
+- 1.2→1.4：loadConfig はまだ main.ts・DI につないでいない。1.4 の PrismaService はプロセスで1回だけ loadConfig を呼び、2つの DI コンテナで共有する。Prisma の CLI（マイグレーション）は apps/api を基準に .env を探すので、最上位の .env か loadConfig().databaseUrl を使うようにすること。操作履歴の UPDATE・DELETE をアプリから拒否するための、アプリ用とマイグレーション用の DB 利用者の分離も 1.4 で決める（今の DATABASE_URL はスーパーユーザーの hotel）
+- 1.2：開発用 DB の volume は初回起動時のパスワードを保持する。.env の POSTGRES_PASSWORD を変えたら `docker compose --profile test down -v` で作り直す

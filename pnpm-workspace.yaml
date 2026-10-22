@@ -21,6 +21,7 @@ catalog:
   '@testing-library/react': ^16.3.3
   '@types/express': ^5.0.6
   '@types/node': ^24.19.2
+  '@types/pg': ^8.23.1
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
   '@types/supertest': ^7.2.1
@@ -28,6 +29,7 @@ catalog:
   i18next: ^26.5.3
   # jsdom 30 は Node.js 24.15 以上が必要なため 29 を使う
   jsdom: ^29.1.1
+  pg: ^8.23.1
   prettier: ^3.9.10
   react: ^19.3.1
   react-dom: ^19.3.1
