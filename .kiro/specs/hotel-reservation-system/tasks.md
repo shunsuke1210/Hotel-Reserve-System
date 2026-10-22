@@ -45,7 +45,7 @@
   - 完了状態：3つのアプリがそれぞれ起動して空のトップ画面を表示し、宿泊客アプリでは言語を切り替えると見出しの文言が変わる
   - _Requirements: 16.1, 16.3, 16.6_
 
-- [ ] 1.7 外部サービスのインターフェースと模擬実装を作る
+- [x] 1.7 外部サービスのインターフェースと模擬実装を作る
   - 決済（カードの登録・決済・返金・カードの削除）、機械翻訳、メール送信のインターフェースを定め、業務のコードはインターフェースだけを使うようにする
   - 模擬の決済は、カード番号の末尾で成功・拒否・一時的な障害を返し、同じ冪等キーの決済を二重に行わない。カード番号は保存しない
   - 模擬の翻訳は言語名を付けた文を返し、模擬のメールは送信の記録を残す
@@ -539,3 +539,8 @@
 - 1.6：jsdom は 29 に固定（30 は Node 24.15 以上が必要。この PC は 24.12）。@vitejs/plugin-react は 5（6 は Vite 8 が必要）。宿泊客アプリの JS は 495 kB で Vite の 500 kB の警告に近い。後のタスクで分割を考える
 - 1.6：まだないもの：存在しない画面（G21）とルートの errorElement（後の画面のタスク）、社内用 nginx で front・cleaning を同じオリジンに載せる場合の basename（11.1）
 - 1.6：ルートの test から `--passWithNoTests` を外した（全パッケージにテストがある）
+- 1.7：PaymentGateway・Translator・MailSender は抽象クラス（DI のトークンを兼ねる。BusinessClock と同じ形）。業務のコードはこの型で注入し、integrations の mock-* と testing/ を import しない（依存の向きのテストがある）
+- 1.7：IntegrationsModule は @Global で、模擬はプロセスに1つだけ作って2つの待ち受け口で共有する（公開用の決済を社内用の payment-reconcile が findCharge で見つけるため）。そのため状態がテストの間で持ち越される。結合テストでは、テストごとに `overrideProvider(PaymentGateway).useValue(new TestPaymentGateway())` などで新しいインスタンスに差し替えること（例：TC-IT-071 と TC-IT-077 は同じ K1 で逆の結果を期待する）
+- 1.7：模擬の振る舞いは識別子の形で決まる（トークン `mock_tok_{下4桁}_…`、決済 `mock_ch_{下4桁}_…`、返金 `mock_re_…`）。テストの前提は registerCard・charge を通して作る（独自の payment_token は決済が拒否、独自の provider_ref は返金で例外になる）。再起動すると決済の記録は消える
+- 1.7：テスト用の差し替え部品は integrations/testing/（TestPaymentGateway.force・clearForced で結果を固定、TestMailSender.failWith で送信を失敗させる）。模擬のメールはメモリに直近100通を残すだけで、mail_outbox を SENT にするのは 3.4 の outbox の処理
+- 1.7：冪等キーが同じなら、額やカードが違っても前回の結果（成功・拒否）を返す（L-15）。一時的な障害は覚えない（同じキーで再試行できる。L-50）。返金の合計がもとの決済額を超えないかは、課金のタスクで確かめる
