@@ -22,7 +22,7 @@
   - 完了状態：2つの待ち受け口がそれぞれ稼働確認の応答を返し、公開用の待ち受け口では社内用の稼働確認の URL が「見つからない」になり、テストで時計を任意の時刻に固定できる
   - _Requirements: 2.2, 2.4, 3.6_
 
-- [ ] 1.4 データベースのスキーマと、結合テストの仕組みを作る
+- [x] 1.4 データベースのスキーマと、結合テストの仕組みを作る
   - design.md の Physical Data Model のすべてのテーブルを作る
   - 部屋×宿泊日の一意制約、メール・電話番号の有効な会員の間での一意、会員ごとの決済待ちは1件まで、お知らせの未解決の重複のまとめ、を制約で保証する
   - 操作履歴は追記だけにし、更新・削除をデータベースが拒否するようにする
@@ -549,3 +549,11 @@
 - 1.2：設定は apps/api/src/shared/config/app-config.ts の loadConfig（zod で検証）。読み込みの順序は `.env` → `.env.{APP_ENV}` → 環境変数（APP_ENV は development・test・production。NODE_ENV は使わない）。test では TEST_DATABASE_URL を使い、開発用と同じ DB なら止まる。エラーの文言に値を出さない。ファイルはリポジトリの最上位（.env は Git の対象外、.env.example だけを管理する）
 - 1.2→1.4：loadConfig はまだ main.ts・DI につないでいない。1.4 の PrismaService はプロセスで1回だけ loadConfig を呼び、2つの DI コンテナで共有する。Prisma の CLI（マイグレーション）は apps/api を基準に .env を探すので、最上位の .env か loadConfig().databaseUrl を使うようにすること。操作履歴の UPDATE・DELETE をアプリから拒否するための、アプリ用とマイグレーション用の DB 利用者の分離も 1.4 で決める（今の DATABASE_URL はスーパーユーザーの hotel）
 - 1.2：開発用 DB の volume は初回起動時のパスワードを保持する。.env の POSTGRES_PASSWORD を変えたら `docker compose --profile test down -v` で作り直す
+- 1.4：Prisma 7.10（prisma-client ジェネレーター、@prisma/adapter-pg）。生成した Client は apps/api/src/shared/prisma/generated（Git の対象外。postinstall・typecheck・build・test:integration で作り直す）。手順は `pnpm db:up` → `pnpm db:migrate` → `pnpm test:integration`。スキーマを変えたら新しいマイグレーションを足す（開発用 DB のリセットは利用者の同意が要る）
+- 1.4：部分一意インデックスは Prisma のプレビュー機能 partialIndexes で、条件は PostgreSQL が正規化した形で書く。lower(email) の式のインデックス・CHECK 制約（列挙の値は contracts と一致）・audit_logs のトリガー・権限はマイグレーションの SQL に直接書く。差は結合テストの `prisma migrate diff --exit-code` で見張っている
+- 1.4：DB の利用者を分けた。アプリは hotel_api（DATABASE_URL・TEST_DATABASE_URL。hotel_app ロールのメンバー）、マイグレーションは所有者の hotel（MIGRATION_DATABASE_URL・TEST_MIGRATION_DATABASE_URL）。audit_logs はアプリに SELECT・INSERT だけを与え、トリガーで UPDATE・DELETE・TRUNCATE も拒否する。ALTER DEFAULT PRIVILEGES で後のテーブルにも読み書きの権限が付くので、追記だけのテーブルを足すときはそのマイグレーションで REVOKE する
+- 1.4：PrismaService はプロセスで1つ（参照の数で管理）で、2つの待ち受け口で共有する。最初の問い合わせで接続する。Proxy のため `instanceof PrismaService` は成り立たない。トランザクションは shared/prisma/transaction.ts の runInTransaction、一意制約の違反は prisma-errors.ts の isUniqueViolation で見分ける（L-17 のやり直しに使う）
+- 1.4：結合テストは `createTestDatabase()`（apps/api/src/test/database/test-database.ts）で、ファイルごとにひな形から複製した空の DB を使う。createTestListenerApp は既定で PrismaService を「使うと失敗する代わり」に差し替える（`prisma` のオプションで本物を使える）
+- 1.4：外部キーは design で「FK」と書いた列だけ。削除は必須の関係が Restrict、省略できる関係が SetNull（会員を消すと reservations.member_id は空になる。19.x では先にカード・トークン・同意などの子の行を消す）
+- 1.4：設計書のデータの定義と処理の食い違いを L-52〜L-56 で直した（予約番号は確定まで空、退会でパスワードを空、名簿の途中保存で氏名などが空、メールアドレスの変更の新しいアドレスは auth_tokens.new_email、決済待ち1件の制約は WEB だけ）
+- 1.4：`pnpm check` は DB を使わないが、リポジトリの最上位に `.env` が必要になった（listeners.test.ts の startApis が本物の PrismaModule を使い、起動時に loadConfig を呼ぶため）。必要なら後で startApis のテストに差し替えの手段を足す

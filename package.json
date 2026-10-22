@@ -16,6 +16,7 @@
     "format:check": "prettier --check .",
     "db:up": "docker compose up --detach --wait --wait-timeout 120 postgres postgres-test",
     "db:down": "docker compose --profile test down",
+    "db:migrate": "pnpm --filter @hotel/api db:migrate",
     "dev:guest": "pnpm --filter @hotel/guest-web dev",
     "dev:front": "pnpm --filter @hotel/front-web dev",
     "dev:cleaning": "pnpm --filter @hotel/cleaning-web dev",

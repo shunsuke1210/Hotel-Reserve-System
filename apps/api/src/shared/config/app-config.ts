@@ -7,6 +7,12 @@
 // APP_ENV（development・test・production）は読むファイルを決めるので、環境変数（または引数）だけで指定する。
 //
 // 誤りは起動の時点で ConfigError として止める。文言には項目名と理由だけを書き、値（パスワードなど）は出さない。
+//
+// データベースの利用者は2つに分ける（tasks.md 1.4、要件 18.2）：
+//   - アプリ用（DATABASE_URL・TEST_DATABASE_URL）：API が使う。テーブルの所有者ではなく、操作履歴（audit_logs）の
+//     UPDATE・DELETE の権限を持たない
+//   - マイグレーション用（MIGRATION_DATABASE_URL・TEST_MIGRATION_DATABASE_URL）：テーブルの所有者。
+//     マイグレーションと結合テストの準備（テスト用のデータベースの作成）だけに使い、API の実行には使わない
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -23,6 +29,12 @@ export interface AppConfig {
    * パスワードを含むので、ログやエラーの文言には describeDatabaseTarget で表したものを使う。
    */
   readonly databaseUrl: string;
+  /**
+   * この環境のマイグレーション用（テーブルの所有者）の接続文字列。未設定なら undefined。
+   * test では TEST_MIGRATION_DATABASE_URL、それ以外では MIGRATION_DATABASE_URL。
+   * API の実行には使わない。使うときは requireMigrationDatabaseUrl で取り出す。
+   */
+  readonly migrationDatabaseUrl: string | undefined;
   /** 読み込んだ設定ファイルの名前（存在したものだけ） */
   readonly loadedFiles: readonly string[];
 }
@@ -83,6 +95,8 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const result = envSchema(appEnv).safeParse({
     DATABASE_URL: value('DATABASE_URL'),
     TEST_DATABASE_URL: value('TEST_DATABASE_URL'),
+    MIGRATION_DATABASE_URL: value('MIGRATION_DATABASE_URL'),
+    TEST_MIGRATION_DATABASE_URL: value('TEST_MIGRATION_DATABASE_URL'),
   });
   if (!result.success) {
     throw new ConfigError(
@@ -98,7 +112,22 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const databaseUrl = appEnv === 'test' ? env.TEST_DATABASE_URL : env.DATABASE_URL;
   // envSchema が、その環境で使う接続先を必須にしている
   if (databaseUrl === undefined) throw new Error('使うデータベースの接続先が決まりません');
-  return { appEnv, databaseUrl, loadedFiles };
+  const migrationDatabaseUrl =
+    appEnv === 'test' ? env.TEST_MIGRATION_DATABASE_URL : env.MIGRATION_DATABASE_URL;
+  return { appEnv, databaseUrl, migrationDatabaseUrl, loadedFiles };
+}
+
+/**
+ * マイグレーション用（テーブルの所有者）の接続先を取り出す。未設定なら ConfigError を投げる。
+ * マイグレーション（pnpm db:migrate）と結合テストの準備で使う。
+ */
+export function requireMigrationDatabaseUrl(config: AppConfig): string {
+  if (config.migrationDatabaseUrl !== undefined) return config.migrationDatabaseUrl;
+  throw new ConfigError([{ key: migrationUrlKey(config.appEnv), message: MISSING }], config);
+}
+
+function migrationUrlKey(appEnv: AppEnv): string {
+  return appEnv === 'test' ? 'TEST_MIGRATION_DATABASE_URL' : 'MIGRATION_DATABASE_URL';
 }
 
 /**
@@ -197,14 +226,24 @@ const postgresUrl = z.string({ error: MISSING }).superRefine((url, ctx) => {
  * - test：結合テストが使う TEST_DATABASE_URL が必須
  * TEST_DATABASE_URL は、書いてあればどの環境でも、DATABASE_URL と別のデータベースであることを確かめる
  * （結合テストはテスト用のデータベースを空にするので、開発用のデータを消さないように）。
+ * マイグレーション用の接続先（省略できる）は、書いてあれば、対になるアプリ用と同じデータベースを、別の利用者で指すことを確かめる。
  */
 function envSchema(appEnv: AppEnv) {
   return z
     .object({
       DATABASE_URL: appEnv === 'test' ? postgresUrl.optional() : postgresUrl,
       TEST_DATABASE_URL: appEnv === 'test' ? postgresUrl : postgresUrl.optional(),
+      MIGRATION_DATABASE_URL: postgresUrl.optional(),
+      TEST_MIGRATION_DATABASE_URL: postgresUrl.optional(),
     })
     .superRefine((env, ctx) => {
+      for (const [appKey, migrationKey] of [
+        ['DATABASE_URL', 'MIGRATION_DATABASE_URL'],
+        ['TEST_DATABASE_URL', 'TEST_MIGRATION_DATABASE_URL'],
+      ] as const) {
+        const problem = migrationPairProblem(env[appKey], env[migrationKey], appKey);
+        if (problem) ctx.addIssue({ code: 'custom', path: [migrationKey], message: problem });
+      }
       if (env.DATABASE_URL === undefined || env.TEST_DATABASE_URL === undefined) return;
       const development = parseDatabaseTarget(env.DATABASE_URL);
       const test = parseDatabaseTarget(env.TEST_DATABASE_URL);
@@ -216,6 +255,32 @@ function envSchema(appEnv: AppEnv) {
         });
       }
     });
+}
+
+/** マイグレーション用の接続先が、対になるアプリ用と同じデータベースを別の利用者で指していなければ、その理由 */
+function migrationPairProblem(
+  appUrl: string | undefined,
+  migrationUrl: string | undefined,
+  appKey: string,
+): string | undefined {
+  if (appUrl === undefined || migrationUrl === undefined) return undefined;
+  // 接続文字列としての誤りは、項目ごとの検証で示す（同じ項目に2つ目の誤りを重ねない）
+  if (postgresUrlProblem(appUrl) || postgresUrlProblem(migrationUrl)) return undefined;
+  const app = parseDatabaseTarget(appUrl);
+  const migration = parseDatabaseTarget(migrationUrl);
+  if (!app || !migration) return undefined;
+  if (!isSameDatabase(app, migration)) {
+    return `${appKey} と同じデータベースを指してください（いまは ${describeDatabaseTarget(migrationUrl)}）`;
+  }
+  if (databaseUser(appUrl) === databaseUser(migrationUrl)) {
+    return `${appKey} とは別の利用者（テーブルの所有者）にしてください。アプリ用の利用者から操作履歴の変更・削除の権限を外すため`;
+  }
+  return undefined;
+}
+
+/** 接続文字列の利用者名 */
+function databaseUser(url: string): string {
+  return safeDecode(new URL(url).username);
 }
 
 function resolveAppEnv(raw: string | undefined): AppEnv {

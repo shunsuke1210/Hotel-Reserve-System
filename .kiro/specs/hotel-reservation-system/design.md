@@ -618,10 +618,10 @@ erDiagram
 
 | テーブル | 主な列 | 制約・インデックス | 要件 |
 |---|---|---|---|
-| members | id uuid PK、status text（PENDING・ACTIVE・WITHDRAWN）、email text、phone text（数字だけに正規化）、password_hash text、family_name text、given_name text、postal_code text、address text、country text、is_foreign_non_resident bool、nationality text null、passport_number text null、birth_date date、preferred_locale text、email_verified_at tstz null、withdrawn_at tstz null、last_stay_date date null | lower(email) と phone は、status が PENDING・ACTIVE の行の中で一意（部分一意インデックス） | 1.1〜1.11, 19.x |
+| members | id uuid PK、status text（PENDING・ACTIVE・WITHDRAWN）、email text、phone text（数字だけに正規化）、password_hash text null（退会で消す。L-53）、family_name text、given_name text、postal_code text、address text、country text、is_foreign_non_resident bool、nationality text null、passport_number text null、birth_date date、preferred_locale text、email_verified_at tstz null、withdrawn_at tstz null、last_stay_date date null | lower(email) と phone は、status が PENDING・ACTIVE の行の中で一意（部分一意インデックス） | 1.1〜1.11, 19.x |
 | member_cards | member_id uuid PK FK、payment_token text、brand text、last4 text、exp_month int、exp_year int | 1会員1枚。カード番号は保存しない | 1.1, 1.8, 4.13 |
 | marketing_consents | id uuid PK、member_id FK、consented bool、method text（REGISTRATION・PROFILE・UNSUBSCRIBE_LINK）、recorded_at tstz | 追記だけ。最新の行が現在の状態 | 1.5〜1.7, 15.6 |
-| auth_tokens | id uuid PK、member_id FK、purpose text（VERIFY_EMAIL・RESET_PASSWORD）、token_hash text、expires_at tstz、used_at tstz null | token_hash 一意。確認は24時間、再設定は1時間で期限切れ | 1.4, 1.9 |
+| auth_tokens | id uuid PK、member_id FK、purpose text（VERIFY_EMAIL・RESET_PASSWORD）、token_hash text、new_email text null（メールアドレスの変更の確認のとき、確認前の新しいアドレス。L-55）、expires_at tstz、used_at tstz null | token_hash 一意。確認は24時間、再設定は1時間で期限切れ | 1.4, 1.9 |
 | sessions | id text PK（推測できない値）、realm text（MEMBER・STAFF）、subject_id uuid、expires_at tstz、last_seen_at tstz | (realm, subject_id) | 2.1, 1.11 |
 | staff | id uuid PK、staff_number text、name text、role text（ADMIN・FRONT・CLEANER）、password_hash text、is_active bool | staff_number 一意 | 2.1, 2.2 |
 
@@ -629,13 +629,13 @@ erDiagram
 
 | テーブル | 主な列 | 制約・インデックス | 要件 |
 |---|---|---|---|
-| reservations | id uuid PK、reservation_number text、member_id uuid null FK、channel text（WEB・FRONT）、status text、payment_method text、room_type_id FK（予約時のタイプ）、arrival_date date、departure_date date、adults int、children int、infants int、breakfast_adults int、breakfast_children int、breakfast_infants int（各区分の人数以下）、early_bird bool、is_group bool（一度 true になったら戻さない）、max_room_count int（確保の時点は0、確定で室数。L-41）、booker_is_guest bool、arrival_eta text null、companions_on_site bool、terms_version int null、terms_agreed_at tstz null、hold_expires_at tstz null、confirmed_at tstz null、no_show_at tstz null、no_show_deferred_until tstz null、cancelled_at tstz null、checked_in_at tstz null、checked_out_at tstz null、version int、creation_idempotency_key text null（フロントの登録の二重送信を防ぐ。L-25） | reservation_number 一意（10文字、推測しにくい英数字）。creation_idempotency_key 一意。(member_id, status)、(arrival_date, status)。同じ会員の PENDING_PAYMENT は1件まで（部分一意インデックス） | 4.x, 7.x, 8.x |
+| reservations | id uuid PK、reservation_number text null（確定の時点で発行。L-52）、member_id uuid null FK、channel text（WEB・FRONT）、status text、payment_method text、room_type_id FK（予約時のタイプ）、arrival_date date、departure_date date、adults int、children int、infants int、breakfast_adults int、breakfast_children int、breakfast_infants int（各区分の人数以下）、early_bird bool、is_group bool（一度 true になったら戻さない）、max_room_count int（確保の時点は0、確定で室数。L-41）、booker_is_guest bool、arrival_eta text null、companions_on_site bool、terms_version int null、terms_agreed_at tstz null、hold_expires_at tstz null、confirmed_at tstz null、no_show_at tstz null、no_show_deferred_until tstz null、cancelled_at tstz null、checked_in_at tstz null、checked_out_at tstz null、version int、creation_idempotency_key text null（フロントの登録の二重送信を防ぐ。L-25） | reservation_number 一意（空でない行の中で。10文字、推測しにくい英数字）。creation_idempotency_key 一意。(member_id, status)、(arrival_date, status)。同じ会員の PENDING_PAYMENT は1件まで（部分一意インデックス） | 4.x, 7.x, 8.x |
 | reservation_rooms | id uuid PK、reservation_id FK、room_id FK null、current_room_type_id FK、early_checkin_hour int null、late_checkout_hour int null、upgrade_kind text null（COMPLIMENTARY・PAID）、room_guest_counts jsonb null（タイプ変更時に入力した人数）、cancelled_at tstz null | (reservation_id) | 9.x, 4.10 |
 | room_nights | id uuid PK、reservation_room_id FK、room_id FK、stay_date date、kind text（HOLD・BOOKED） | **(room_id, stay_date) 一意**。(stay_date) | 3.2, 9.1, 9.5 |
 | stay_night_prices | id uuid PK、reservation_id FK、stay_date date、rate_version_id FK、base_price_excl int、surcharge_bp int、early_bird_eligible bool、added_at tstz、voided_at tstz null | (reservation_id, stay_date) は有効な行の中で一意 | 6.18, 7.4, 7.5 |
 | charge_lines | id uuid PK、reservation_id FK、reservation_room_id uuid null、category text、stay_date date null、age_category text null、quantity int、unit_price_incl int、amount_incl int、settlement text（PREPAID・ONSITE）、rate_version_id uuid FK（その明細の料金に使った版。L-14）、voided_at tstz null、voided_reason text null、created_by text | (reservation_id, voided_at)。category：ROOM・BREAKFAST・EARLY_CHECKIN・LATE_CHECKOUT・UPGRADE・DOWNGRADE_ADJUSTMENT・CANCELLATION_FEE・NO_SHOW_FEE・LODGING_TAX | 6.x, 8.x, 9.10, 9.13, 20.x |
 | payments | id uuid PK、reservation_id FK、kind text（CHARGE・REFUND・ONSITE_RECEIPT・ONSITE_REFUND・FEE_CHARGE）、amount int、method text（CARD_ON_FILE・CASH・CARD・BANK_TRANSFER・OTHER）、provider_ref text null、idempotency_key text、status text（PENDING・SUCCEEDED・FAILED・VOIDED。PENDING と VOIDED は L-29）、staff_id uuid null | idempotency_key 一意（ノーショーの返金の再試行は同じ行の status を更新する）。FEE_CHARGE が FAILED の予約で、取消・ノーショー後に残高が正なら、その残高が「未回収」。確定済み・滞在中の予約（現地払いの変更によるキャンセル料。DT-M17）は、FAILED の FEE_CHARGE の額の合計からその後の入金を引いた額（残高を上限）が「未回収」。事前決済のノーショーで REFUND が FAILED のままなら「返金待ち」（DT-M18）。未回収に数えるのは、明細が取り消されていないキャンセル料・ノーショー料に対応する FEE_CHARGE だけ（DT-M43）。返金の行は、下位タイプへの移動の宿泊料金と宿泊税の差額も1行（L-44） | 4.19, 7.12〜7.15, 8.11, 8.12, 8.22〜8.24, 11.4, 11.12 |
-| roster_entries | id uuid PK、reservation_id FK、is_booker bool、age_category text、family_name text、given_name text、address text、contact text、is_foreign_non_resident bool、nationality text null、passport_number text null、extra jsonb、source text（WEB・FRONT） | (reservation_id) | 14.1〜14.4, 11.1 |
+| roster_entries | id uuid PK、reservation_id FK、is_booker bool、age_category text、family_name text null、given_name text null、address text null、contact text null（途中保存では空でよい。L-54）、is_foreign_non_resident bool、nationality text null、passport_number text null、extra jsonb、source text（WEB・FRONT） | (reservation_id) | 14.1〜14.4, 11.1 |
 
 #### 運用
 
@@ -940,6 +940,11 @@ erDiagram
 | L-49 | 部屋の入れ替えの操作履歴は、target_type＝予約、target_id＝操作した側（reservationRoomIdA）の予約とし、もう一方の予約の ID は detail に入れる（W-06） |
 | L-50 | 模擬の決済は、一時的な障害を返した決済（末尾0119・0259）を記録しない。照合の findCharge は null を返す（W-08） |
 | L-51 | TOKEN_INVALID（POST /auth/verify-email、/auth/password-reset/confirm、/marketing/unsubscribe）の HTTP ステータスは 400。Error Handling の表に行を加えた（実装のタスク 1.1 で見つかった表の漏れ。技術の細部として推奨案で決定：DT-L4） |
+| L-52 | reservations.reservation_number は確定の時点で発行するので、確保の間と期限切れの予約では空（P-04 手順4。一意は空でない行の中で）。実装のタスク 1.4 で見つかったデータの定義と処理の食い違いを、処理に合わせて直した（DT-L4） |
+| L-53 | members.password_hash は退会で消すので空を許す（要件 1.11）。退会した会員はログインできない（DT-L4） |
+| L-54 | roster_entries の family_name・given_name・address・contact は、途中保存（L-19）のために空を許す。完了の判定（P-14）はこれらがそろっていることを確かめる。age_category は必須のまま（DT-L4） |
+| L-55 | メールアドレスの変更（DT-M4）では、確認前の新しいアドレスを auth_tokens.new_email に入れ、purpose は VERIFY_EMAIL を使う。確認が済んだ時点で members.email を切り替える（そのときにも有効な会員の間の重複を確かめる）。会員登録の確認では new_email は空（DT-L4） |
+| L-56 | 会員ごとの決済待ちは1件までの部分一意インデックスは、channel＝WEB の予約だけを対象にする（DT-M10：フロントの登録には当てない。フロントの登録も確保を経由するため：P-04 手順6） |
 
 ## Error Handling
 

@@ -3,10 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "build": "vite build",
+    "postinstall": "prisma generate",
+    "generate": "prisma generate",
+    "typecheck": "prisma generate && tsc -p tsconfig.json",
+    "build": "prisma generate && vite build",
     "start": "node dist/main.js",
-    "test:integration": "vitest run --config vitest.integration.config.mts"
+    "db:migrate": "tsx prisma/scripts/migrate.ts",
+    "test:integration": "prisma generate && vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "@date-fns/tz": "catalog:",
@@ -14,6 +17,8 @@
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
     "@nestjs/platform-express": "catalog:",
+    "@prisma/adapter-pg": "catalog:",
+    "@prisma/client": "catalog:",
     "reflect-metadata": "catalog:",
     "rxjs": "catalog:",
     "zod": "catalog:"
@@ -26,7 +31,9 @@
     "@types/pg": "catalog:",
     "@types/supertest": "catalog:",
     "pg": "catalog:",
+    "prisma": "catalog:",
     "supertest": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "unplugin-swc": "catalog:"
   }

@@ -5,5 +5,11 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
-  "include": ["src", "vite.config.mts", "vitest.integration.config.mts"]
+  "include": [
+    "src",
+    "prisma",
+    "prisma.config.ts",
+    "vite.config.mts",
+    "vitest.integration.config.mts"
+  ]
 }

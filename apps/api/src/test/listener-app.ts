@@ -1,10 +1,12 @@
 // テスト用に、本番と同じモジュールと共通の設定で待ち受け口のアプリを作る（ポートでは待ち受けない）。
-// 時計と要求のログの出力先は、テストから差し替えられる。
+// 時計・要求のログの出力先・データベース（PrismaService）は、テストから差し替えられる。
+// データベースは、指定しなければ使えない（単体テストはデータベースなしで動く。pnpm check）。
 import type { INestApplication, Type } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { configureListener, LISTENERS } from '../listeners.js';
 import { BusinessClock } from '../shared/clock/business-clock.js';
+import { PrismaService } from '../shared/prisma/prisma.service.js';
 import type { ListenerName } from '../shared/logging/request-context.js';
 import { RequestLogSink, type RequestLogEntry } from '../shared/logging/request-log.js';
 
@@ -24,6 +26,37 @@ export interface TestListenerOptions {
   logSink?: RequestLogSink;
   /** テストのためだけに加えるコントローラー */
   controllers?: Type[];
+  /**
+   * データベース。
+   * - 省略時：使えない（使おうとすると理由を示して失敗する。単体テスト用）
+   * - PrismaService：そのデータベースを使う（結合テストの createTestDatabase().prisma など）
+   * - 'process'：本番と同じく、設定ファイルの接続先でプロセスに1つの PrismaService を使う（PrismaModule の確認用）
+   */
+  prisma?: PrismaService | 'process';
+}
+
+/** PrismaService を調べるだけの操作（NestJS のライフサイクルの確認など）では、失敗させずに undefined を返す */
+const INSPECTED_PROPERTIES = new Set([
+  'then',
+  'constructor',
+  'toJSON',
+  'onModuleInit',
+  'onApplicationBootstrap',
+  'onModuleDestroy',
+  'beforeApplicationShutdown',
+  'onApplicationShutdown',
+]);
+
+/** データベースを使わないテストの PrismaService の代わり。使おうとすると、理由を示して失敗する */
+export function createNoDatabasePrisma(): PrismaService {
+  return new Proxy(Object.create(null) as object, {
+    get(_target, property) {
+      if (typeof property === 'symbol' || INSPECTED_PROPERTIES.has(property)) return undefined;
+      throw new Error(
+        `このテストはデータベースを使いません（PrismaService.${property}）。結合テスト（*.integration.test.ts）で createTestListenerApp の prisma を指定してください`,
+      );
+    },
+  }) as PrismaService;
 }
 
 export async function createTestListenerApp(
@@ -38,6 +71,9 @@ export async function createTestListenerApp(
     builder.overrideProvider(BusinessClock).useValue(options.clock);
   }
   builder.overrideProvider(RequestLogSink).useValue(options.logSink ?? new MemoryRequestLogSink());
+  if (options.prisma !== 'process') {
+    builder.overrideProvider(PrismaService).useValue(options.prisma ?? createNoDatabasePrisma());
+  }
 
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });

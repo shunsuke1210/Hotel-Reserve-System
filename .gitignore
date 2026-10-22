@@ -4,6 +4,9 @@ coverage/
 *.tsbuildinfo
 *.log
 
+# Prisma Client の生成物（prisma generate で作る。pnpm install・typecheck・build のときに作り直す）
+apps/api/src/shared/prisma/generated/
+
 # 環境設定（接続先・秘密の値）。Git に入れるのはひな形の .env.example だけ
 .env
 .env.*

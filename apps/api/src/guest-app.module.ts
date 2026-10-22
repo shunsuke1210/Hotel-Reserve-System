@@ -6,8 +6,9 @@ import { IntegrationsModule } from './integrations/integrations.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { ClockModule } from './shared/clock/clock.module.js';
 import { LoggingModule } from './shared/logging/logging.module.js';
+import { PrismaModule } from './shared/prisma/prisma.module.js';
 
 @Module({
-  imports: [ClockModule, LoggingModule, IntegrationsModule, HealthModule],
+  imports: [ClockModule, LoggingModule, PrismaModule, IntegrationsModule, HealthModule],
 })
 export class GuestAppModule {}

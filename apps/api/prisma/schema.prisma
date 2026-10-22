@@ -1,0 +1,605 @@
+// データ設計（design.md「Data Models」の Physical Data Model と「設計の補足」）。
+//
+// - テーブル名・列名は design.md のとおりの snake_case（@@map・@map）。TypeScript からはモデル名・項目名（camelCase）で使う
+// - 型：uuid → @db.Uuid、text → String、int → Int、date → @db.Date、tstz → @db.Timestamptz(6)、bool → Boolean、jsonb → Json
+// - 「null」と書いた列だけを省略可能にする。すべてのテーブルに created_at（tstz）を持つ
+// - 外部キーは design.md で「FK」と書いた列だけに張る（uuid の列でも FK と書いていないものは張らない）
+// - 列挙の値は text に保存し、取りうる値は CHECK 制約で決める（値は packages/contracts の列挙と同じ）
+//
+// Prisma の書き方で表せない制約は、マイグレーションの SQL（prisma/migrations）に直接書いている：
+//   - 列挙の値の CHECK 制約
+//   - members の lower(email) の部分一意インデックス（式のインデックス）
+//   - audit_logs の UPDATE・DELETE・TRUNCATE を拒否するトリガー
+//   - アプリのデータベース利用者（hotel_app の権限）。audit_logs には SELECT・INSERT だけを与える
+// Prisma はこれらを比較の対象にしない（スキーマを変えても消えない）。部分一意インデックスは where: raw(...) で書き、
+// 条件は PostgreSQL が正規化した形（例：= ANY (ARRAY[...::text])）で書く（違う形だと毎回作り直しの差分が出る）。
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/shared/prisma/generated"
+  // API は CommonJS（Vite で dist/main.js に束ねる）
+  moduleFormat        = "cjs"
+  importFileExtension = "js"
+  previewFeatures     = ["partialIndexes"]
+}
+
+// 接続先は prisma.config.ts で設定する（マイグレーション用の利用者。.env などから loadConfig で読む）
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// マスタ・設定
+// ---------------------------------------------------------------------------
+
+/// 客室タイプ
+model RoomType {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              String   @unique
+  nameJa            String   @map("name_ja")
+  areaSqm           Int      @map("area_sqm")
+  bedDescriptionJa  String   @map("bed_description_ja")
+  capacityAdults    Int      @map("capacity_adults")
+  standardOccupancy Int      @map("standard_occupancy")
+  displayOrder      Int      @map("display_order")
+  descriptionJa     String   @map("description_ja")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rooms            Room[]
+  prices           RoomTypePrice[]
+  reservations     Reservation[]
+  reservationRooms ReservationRoom[]
+
+  @@map("room_types")
+}
+
+/// 部屋
+model Room {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roomNumber      Int      @unique @map("room_number")
+  floor           Int
+  roomTypeId      String   @map("room_type_id") @db.Uuid
+  isAccessible    Boolean  @map("is_accessible")
+  /// RoomStatus（contracts の ROOM_STATUSES）
+  status          String
+  statusChangedAt DateTime @map("status_changed_at") @db.Timestamptz(6)
+  statusChangedBy String?  @map("status_changed_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  roomType          RoomType           @relation(fields: [roomTypeId], references: [id])
+  reservationRooms  ReservationRoom[]
+  roomNights        RoomNight[]
+  outOfOrderPeriods OutOfOrderPeriod[]
+
+  @@index([roomTypeId, floor])
+  @@map("rooms")
+}
+
+/// 料金の版（新しい予約は effective_from ≦ 現在 のうち最も新しい版を使う。L-12）
+model RateVersion {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  effectiveFrom            DateTime @unique @map("effective_from") @db.Timestamptz(6)
+  weekendSurchargeBp       Int      @map("weekend_surcharge_bp")
+  headcountTiers           Json     @map("headcount_tiers")
+  stayTiers                Json     @map("stay_tiers")
+  earlyBirdBp              Int      @map("early_bird_bp")
+  rateFloorBp              Int      @map("rate_floor_bp")
+  consumptionTaxBp         Int      @map("consumption_tax_bp")
+  breakfastPriceExcl       Int      @map("breakfast_price_excl")
+  offHoursPricePerHourIncl Int      @map("off_hours_price_per_hour_incl")
+  lodgingTaxBrackets       Json     @map("lodging_tax_brackets")
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  roomTypePrices  RoomTypePrice[]
+  stayNightPrices StayNightPrice[]
+  chargeLines     ChargeLine[]
+
+  @@map("rate_versions")
+}
+
+/// 料金の版ごとの、客室タイプの基本料金（税抜）
+model RoomTypePrice {
+  rateVersionId String   @map("rate_version_id") @db.Uuid
+  roomTypeId    String   @map("room_type_id") @db.Uuid
+  basePriceExcl Int      @map("base_price_excl")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rateVersion RateVersion @relation(fields: [rateVersionId], references: [id])
+  roomType    RoomType    @relation(fields: [roomTypeId], references: [id])
+
+  @@id([rateVersionId, roomTypeId])
+  @@map("room_type_prices")
+}
+
+/// 特定期間割増（削除は論理削除。確定済みの予約の控えは変わらない）
+model SpecialSurchargePeriod {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime  @map("end_date") @db.Date
+  rateBp    Int       @map("rate_bp")
+  createdBy String    @map("created_by") @db.Uuid
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("special_surcharge_periods")
+}
+
+/// 祝日（内閣府「国民の祝日」。振替休日を含む）
+model Holiday {
+  date      DateTime @id @db.Date
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("holidays")
+}
+
+/// 宿泊約款
+model TermsDocument {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version     Int      @unique
+  bodyJa      String   @map("body_ja")
+  publishedAt DateTime @map("published_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("terms_documents")
+}
+
+/// 翻訳文（機械翻訳と、スタッフが直した文）
+model Translation {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  field      String
+  /// Locale（contracts の LOCALES）
+  locale     String
+  text       String
+  sourceHash String   @map("source_hash")
+  isEdited   Boolean  @map("is_edited")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([entityType, entityId, field, locale])
+  @@map("translations")
+}
+
+/// 名簿の追加項目（基本項目は固定。追加項目だけを行で持つ）
+model RosterField {
+  key       String   @id
+  labelJa   String   @map("label_ja")
+  required  Boolean
+  active    Boolean
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("roster_fields")
+}
+
+// ---------------------------------------------------------------------------
+// 会員・スタッフ・認証
+// ---------------------------------------------------------------------------
+
+/// 会員。lower(email) と phone は、status が PENDING・ACTIVE の行の中で一意
+/// （lower(email) の部分一意インデックス members_email_active_key はマイグレーションの SQL にある）
+model Member {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// PENDING・ACTIVE・WITHDRAWN
+  status               String
+  email                String
+  /// 数字だけに正規化した電話番号（L-10）
+  phone                String
+  /// 退会で消す（要件 1.11。L-53）
+  passwordHash         String?   @map("password_hash")
+  familyName           String    @map("family_name")
+  givenName            String    @map("given_name")
+  postalCode           String    @map("postal_code")
+  address              String
+  country              String
+  isForeignNonResident Boolean   @map("is_foreign_non_resident")
+  nationality          String?
+  passportNumber       String?   @map("passport_number")
+  birthDate            DateTime  @map("birth_date") @db.Date
+  /// Locale（contracts の LOCALES）
+  preferredLocale      String    @map("preferred_locale")
+  emailVerifiedAt      DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  withdrawnAt          DateTime? @map("withdrawn_at") @db.Timestamptz(6)
+  lastStayDate         DateTime? @map("last_stay_date") @db.Date
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  card              MemberCard?
+  marketingConsents MarketingConsent[]
+  authTokens        AuthToken[]
+  reservations      Reservation[]
+
+  @@unique([phone], map: "members_phone_active_key", where: raw("(status = ANY (ARRAY['PENDING'::text, 'ACTIVE'::text]))"))
+  @@map("members")
+}
+
+/// 会員の登録カード（1会員1枚。カード番号は保存しない）
+model MemberCard {
+  memberId     String   @id @map("member_id") @db.Uuid
+  paymentToken String   @map("payment_token")
+  brand        String
+  last4        String
+  expMonth     Int      @map("exp_month")
+  expYear      Int      @map("exp_year")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@map("member_cards")
+}
+
+/// 定期配信メールの同意の履歴（追記だけ。最新の行が現在の状態）
+model MarketingConsent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId   String   @map("member_id") @db.Uuid
+  consented  Boolean
+  /// REGISTRATION・PROFILE・UNSUBSCRIBE_LINK
+  method     String
+  recordedAt DateTime @map("recorded_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@map("marketing_consents")
+}
+
+/// メール確認・パスワード再設定のトークン（ハッシュだけを保存する）
+model AuthToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId  String    @map("member_id") @db.Uuid
+  /// VERIFY_EMAIL・RESET_PASSWORD
+  purpose   String
+  tokenHash String    @unique @map("token_hash")
+  /// メールアドレスの変更の確認（purpose は VERIFY_EMAIL）のとき、確認前の新しいアドレス。会員登録の確認では空（DT-M4。L-55）
+  newEmail  String?   @map("new_email")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@map("auth_tokens")
+}
+
+/// ログインのセッション（会員・スタッフ）
+model Session {
+  /// 推測できない値
+  id         String   @id
+  /// MEMBER・STAFF
+  realm      String
+  subjectId  String   @map("subject_id") @db.Uuid
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt DateTime @map("last_seen_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([realm, subjectId])
+  @@map("sessions")
+}
+
+/// スタッフ
+model Staff {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffNumber  String   @unique @map("staff_number")
+  name         String
+  /// StaffRole（contracts の STAFF_ROLES）
+  role         String
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("staff")
+}
+
+// ---------------------------------------------------------------------------
+// 予約・在庫・料金
+// ---------------------------------------------------------------------------
+
+/// 予約。同じ会員の Web の PENDING_PAYMENT は1件まで（部分一意インデックス。4.18。
+/// フロントの登録には当てない：DT-M10。フロントの登録も確保と確定を続けて行うため、条件に channel = 'WEB' を含める。L-56）
+model Reservation {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 10文字の推測しにくい英数字。確定の時点で発行する（確保の間と期限切れの予約では空。一意は空でない行の中で。L-52）
+  reservationNumber      String?   @unique @map("reservation_number")
+  memberId               String?   @map("member_id") @db.Uuid
+  /// WEB・FRONT
+  channel                String
+  /// ReservationStatus（contracts の RESERVATION_STATUSES）
+  status                 String
+  /// PaymentMethod（contracts の PAYMENT_METHODS）
+  paymentMethod          String    @map("payment_method")
+  /// 予約時の客室タイプ
+  roomTypeId             String    @map("room_type_id") @db.Uuid
+  arrivalDate            DateTime  @map("arrival_date") @db.Date
+  departureDate          DateTime  @map("departure_date") @db.Date
+  adults                 Int
+  children               Int
+  infants                Int
+  breakfastAdults        Int       @map("breakfast_adults")
+  breakfastChildren      Int       @map("breakfast_children")
+  breakfastInfants       Int       @map("breakfast_infants")
+  earlyBird              Boolean   @map("early_bird")
+  /// 一度 true になったら戻さない
+  isGroup                Boolean   @map("is_group")
+  /// 確保の時点は0、確定で室数（L-41）
+  maxRoomCount           Int       @map("max_room_count")
+  bookerIsGuest          Boolean   @map("booker_is_guest")
+  arrivalEta             String?   @map("arrival_eta")
+  companionsOnSite       Boolean   @map("companions_on_site")
+  termsVersion           Int?      @map("terms_version")
+  termsAgreedAt          DateTime? @map("terms_agreed_at") @db.Timestamptz(6)
+  holdExpiresAt          DateTime? @map("hold_expires_at") @db.Timestamptz(6)
+  confirmedAt            DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  noShowAt               DateTime? @map("no_show_at") @db.Timestamptz(6)
+  noShowDeferredUntil    DateTime? @map("no_show_deferred_until") @db.Timestamptz(6)
+  cancelledAt            DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  checkedInAt            DateTime? @map("checked_in_at") @db.Timestamptz(6)
+  checkedOutAt           DateTime? @map("checked_out_at") @db.Timestamptz(6)
+  version                Int
+  /// フロントの登録の二重送信を防ぐ（L-25）
+  creationIdempotencyKey String?   @unique @map("creation_idempotency_key")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  member          Member?           @relation(fields: [memberId], references: [id])
+  roomType        RoomType          @relation(fields: [roomTypeId], references: [id])
+  rooms           ReservationRoom[]
+  stayNightPrices StayNightPrice[]
+  chargeLines     ChargeLine[]
+  payments        Payment[]
+  rosterEntries   RosterEntry[]
+
+  @@unique([memberId], map: "reservations_member_id_pending_payment_key", where: raw("((status = 'PENDING_PAYMENT'::text) AND (channel = 'WEB'::text))"))
+  @@index([memberId, status])
+  @@index([arrivalDate, status])
+  @@map("reservations")
+}
+
+/// 予約の部屋
+model ReservationRoom {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationId     String    @map("reservation_id") @db.Uuid
+  roomId            String?   @map("room_id") @db.Uuid
+  currentRoomTypeId String    @map("current_room_type_id") @db.Uuid
+  earlyCheckinHour  Int?      @map("early_checkin_hour")
+  lateCheckoutHour  Int?      @map("late_checkout_hour")
+  /// COMPLIMENTARY・PAID
+  upgradeKind       String?   @map("upgrade_kind")
+  /// タイプ変更時に入力した人数
+  roomGuestCounts   Json?     @map("room_guest_counts")
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reservation     Reservation @relation(fields: [reservationId], references: [id])
+  room            Room?       @relation(fields: [roomId], references: [id])
+  currentRoomType RoomType    @relation(fields: [currentRoomTypeId], references: [id])
+  roomNights      RoomNight[]
+
+  @@index([reservationId])
+  @@map("reservation_rooms")
+}
+
+/// 部屋×宿泊日の占有。(room_id, stay_date) の一意制約が、二重割り当てがないことの保証（ADR-06）
+model RoomNight {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationRoomId String   @map("reservation_room_id") @db.Uuid
+  roomId            String   @map("room_id") @db.Uuid
+  stayDate          DateTime @map("stay_date") @db.Date
+  /// HOLD・BOOKED
+  kind              String
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reservationRoom ReservationRoom @relation(fields: [reservationRoomId], references: [id])
+  room            Room            @relation(fields: [roomId], references: [id])
+
+  @@unique([roomId, stayDate])
+  @@index([stayDate])
+  @@map("room_nights")
+}
+
+/// 夜ごとの料金の控え。(reservation_id, stay_date) は有効な行（voided_at が null）の中で一意
+model StayNightPrice {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationId     String    @map("reservation_id") @db.Uuid
+  stayDate          DateTime  @map("stay_date") @db.Date
+  rateVersionId     String    @map("rate_version_id") @db.Uuid
+  basePriceExcl     Int       @map("base_price_excl")
+  surchargeBp       Int       @map("surcharge_bp")
+  earlyBirdEligible Boolean   @map("early_bird_eligible")
+  addedAt           DateTime  @map("added_at") @db.Timestamptz(6)
+  voidedAt          DateTime? @map("voided_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+  rateVersion RateVersion @relation(fields: [rateVersionId], references: [id])
+
+  @@unique([reservationId, stayDate], map: "stay_night_prices_reservation_id_stay_date_active_key", where: raw("(voided_at IS NULL)"))
+  @@map("stay_night_prices")
+}
+
+/// 請求の明細
+model ChargeLine {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationId     String    @map("reservation_id") @db.Uuid
+  reservationRoomId String?   @map("reservation_room_id") @db.Uuid
+  /// ChargeCategory（contracts の CHARGE_CATEGORIES）
+  category          String
+  stayDate          DateTime? @map("stay_date") @db.Date
+  /// AgeCategory（contracts の AGE_CATEGORIES）
+  ageCategory       String?   @map("age_category")
+  quantity          Int
+  unitPriceIncl     Int       @map("unit_price_incl")
+  amountIncl        Int       @map("amount_incl")
+  /// PREPAID・ONSITE
+  settlement        String
+  /// その明細の料金に使った版（L-14）
+  rateVersionId     String    @map("rate_version_id") @db.Uuid
+  voidedAt          DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidedReason      String?   @map("voided_reason")
+  createdBy         String    @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+  rateVersion RateVersion @relation(fields: [rateVersionId], references: [id])
+
+  @@index([reservationId, voidedAt])
+  @@map("charge_lines")
+}
+
+/// 入金・返金の記録
+model Payment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationId  String   @map("reservation_id") @db.Uuid
+  /// PaymentKind（contracts の PAYMENT_KINDS）
+  kind           String
+  amount         Int
+  /// PaymentRecordMethod（contracts の PAYMENT_RECORD_METHODS）
+  method         String
+  providerRef    String?  @map("provider_ref")
+  idempotencyKey String   @unique @map("idempotency_key")
+  /// PaymentStatus（contracts の PAYMENT_STATUSES。PENDING と VOIDED は L-29）
+  status         String
+  staffId        String?  @map("staff_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+
+  @@map("payments")
+}
+
+/// 名簿
+model RosterEntry {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationId        String   @map("reservation_id") @db.Uuid
+  isBooker             Boolean  @map("is_booker")
+  /// AgeCategory（contracts の AGE_CATEGORIES）
+  ageCategory          String   @map("age_category")
+  /// 氏名・住所・連絡先は途中保存（L-19）のために空を許す。完了の判定（P-14）でそろっていることを確かめる（L-54）
+  familyName           String?  @map("family_name")
+  givenName            String?  @map("given_name")
+  address              String?
+  contact              String?
+  isForeignNonResident Boolean  @map("is_foreign_non_resident")
+  nationality          String?
+  passportNumber       String?  @map("passport_number")
+  extra                Json
+  /// WEB・FRONT
+  source               String
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+
+  @@index([reservationId])
+  @@map("roster_entries")
+}
+
+// ---------------------------------------------------------------------------
+// 運用
+// ---------------------------------------------------------------------------
+
+/// 故障中の期間（同じ部屋の期間の重なりは、登録の前にサービスで確かめる。OVERLAPPING_PERIOD。13.8）
+model OutOfOrderPeriod {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roomId    String    @map("room_id") @db.Uuid
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime  @map("end_date") @db.Date
+  reason    String
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(6)
+  createdBy String    @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@index([roomId, startDate, endDate])
+  @@map("out_of_order_periods")
+}
+
+/// お知らせ。dedupe_key は解決していない行の中で一意（重複のまとめ。10.9）
+model Notice {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// NoticeKind（contracts の NOTICE_KINDS）
+  kind          String
+  dedupeKey     String    @map("dedupe_key")
+  message       String
+  roomTypeId    String?   @map("room_type_id") @db.Uuid
+  roomId        String?   @map("room_id") @db.Uuid
+  reservationId String?   @map("reservation_id") @db.Uuid
+  dateFrom      DateTime  @map("date_from") @db.Date
+  dateTo        DateTime  @map("date_to") @db.Date
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy    String?   @map("resolved_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([dedupeKey], map: "notices_dedupe_key_unresolved_key", where: raw("(resolved_at IS NULL)"))
+  @@map("notices")
+}
+
+/// 操作履歴（追記だけ。UPDATE・DELETE・TRUNCATE はトリガーで拒否し、アプリの利用者には SELECT・INSERT だけを与える。18.2）
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 定時処理は null
+  staffId    String?  @map("staff_id") @db.Uuid
+  actorLabel String   @map("actor_label")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  /// 個人情報の値を書かない（項目の名前と ID だけ。18.3）
+  detail     Json
+  at         DateTime @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("audit_logs")
+}
+
+/// 送信待ちのメール（outbox）
+model MailOutbox {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId  String?   @map("member_id") @db.Uuid
+  toAddress String    @map("to_address")
+  /// Locale（contracts の LOCALES）
+  locale    String
+  template  String
+  payload   Json
+  /// PENDING・SENT・FAILED
+  status    String
+  attempts  Int
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([status])
+  @@map("mail_outbox")
+}
+
+/// 定期配信メール（後のフェーズの管理者画面で使う。件名・本文の翻訳は translations に保存する）
+model MailCampaign {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subjectJa String   @map("subject_ja")
+  bodyJa    String   @map("body_ja")
+  sendAt    DateTime @map("send_at") @db.Timestamptz(6)
+  /// NONE・WEEKLY・MONTHLY
+  repeat    String
+  active    Boolean
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("mail_campaigns")
+}
+
+/// ホテル全体の設定（振込先など）
+model HotelSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("hotel_settings")
+}
+
+/// 定時処理の実行の記録
+model JobRun {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job        String
+  startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  result     String
+  detail     Json
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("job_runs")
+}
