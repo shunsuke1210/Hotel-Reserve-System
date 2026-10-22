@@ -1,0 +1,53 @@
+/* 全画面に共通の最小限の見た目（フロントアプリは PC で使う） */
+:root {
+  --color-text: #1f2328;
+  --color-background: #ffffff;
+  --color-border: #d0d7de;
+  --color-error-text: #82071e;
+  --color-error-background: #ffebe9;
+  --color-error-border: #ff8182;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  color: var(--color-text);
+  background: var(--color-background);
+}
+
+body {
+  margin: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-header__title {
+  margin: 0;
+  font-weight: bold;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  color: var(--color-error-text);
+  background: var(--color-error-background);
+  border-bottom: 1px solid var(--color-error-border);
+}
+
+.error-banner__message {
+  margin: 0;
+}
+
+.app-main {
+  padding: 16px;
+}

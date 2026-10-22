@@ -1,0 +1,18 @@
+{
+  "app": {
+    "title": "住宿预订"
+  },
+  "language": {
+    "label": "语言"
+  },
+  "errorBanner": {
+    "close": "关闭"
+  },
+  "errors": {
+    "network": "无法连接到服务器。请检查网络连接后重试。",
+    "unexpected": "系统发生错误。请稍后重试。"
+  },
+  "time": {
+    "japanTime": "{{time}}（日本时间）"
+  }
+}

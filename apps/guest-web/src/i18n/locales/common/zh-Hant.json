@@ -1,0 +1,18 @@
+{
+  "app": {
+    "title": "住宿預訂"
+  },
+  "language": {
+    "label": "語言"
+  },
+  "errorBanner": {
+    "close": "關閉"
+  },
+  "errors": {
+    "network": "無法連線至伺服器。請檢查網路連線後再試一次。",
+    "unexpected": "系統發生錯誤。請稍後再試。"
+  },
+  "time": {
+    "japanTime": "{{time}}（日本時間）"
+  }
+}

@@ -4,12 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@hotel/contracts": "workspace:*"
+    "@hotel/contracts": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-router": "catalog:"
   },
   "devDependencies": {
-    "typescript": "catalog:"
+    "@testing-library/dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "jsdom": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }

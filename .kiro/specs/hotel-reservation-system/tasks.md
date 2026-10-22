@@ -38,7 +38,7 @@
   - 振込先（銀行名・支店・口座種別・口座番号・名義）をホテルの設定として登録する
   - _Requirements: 4.14, 6.1, 6.6, 6.9, 6.11, 6.12, 6.14, 6.15, 6.16, 9.2, 21.7, 8.23_
 
-- [ ] 1.6 3つの画面アプリの土台を作る
+- [x] 1.6 3つの画面アプリの土台を作る
   - 3つのアプリに、画面の切り替え、API の呼び出し（契約の型を使う）、ログイン切れのときにログイン画面へ移る処理、エラーの帯の表示を入れる
   - 宿泊客アプリに5言語の切り替えの仕組みを入れ、日付・数字を言語ごとの書き方で、時刻を日本時間で表示する共通部品を作る。画面の切り替えの定義と文言ファイルは、機能（検索・認証・予約・マイページ）ごとに分けておき、後のタスクが別々のファイルを編集できるようにする
   - スタッフ向けの2つのアプリは日本語だけにする
@@ -532,3 +532,10 @@
 - 1.3：業務エラーは shared/errors の BusinessError（または Result を unwrapResult）で投げる。HTTP ステータスは常に contracts の ERROR_HTTP_STATUS。時計は BusinessClock を注入して使い、src で new Date() を直接使わない（テストは FixedBusinessClock で固定）
 - 1.3：2つの待ち受け口は別々の DI コンテナなので、プロバイダーは待ち受け口ごとに作られる。1.4 の PrismaService（接続プールが2つになる）と 3.2 の定時処理（社内用だけに載せる）で考慮すること
 - 1.3：L-11（公開用 API の文言を選んだ言語で作る）は 3.1 の担当に加えた
+- 1.6：画面アプリの URL はトップが `/`（G01・F02・C02）、ログインが `/login`（G03・F01・C01）。ログイン切れでは `/login?returnTo=元の画面` へ移る。戻り先は routing/login-redirect.ts の toInternalPath で、同じオリジンのパスだけを認める（制御文字・`\`・解釈し直した後の `//` を拒否。レビューで2回抜け道が見つかったので、戻り先を扱うときは必ずこの関数を通す）
+- 1.6：宿泊客アプリの文言は `src/i18n/locales/{機能}/{言語}.json`（common・search・auth・booking・mypage）、画面の切り替えの定義は `src/features/{機能}/routes.tsx`、画面は `pages/g01-…` の名前。キーは i18next.d.ts で型の検査がされ、全言語で同じキーかをテストで確かめる
+- 1.6：API の呼び出しは各アプリの api/client.ts（3アプリに同じものを置いている）。宿泊客アプリだけ Accept-Language を送り、状態を変える要求に X-Requested-With を付ける。業務エラーの帯は各画面で useErrorBanner().showError(err) を呼んで出す（自動では出さない）
+- 1.6：開発用のポートは 5173（guest）・5174（front）・5175（cleaning）で、Vite の proxy で API（3001・3002）へ中継する。スクリプトは dev:guest・dev:front・dev:cleaning・build:web
+- 1.6：jsdom は 29 に固定（30 は Node 24.15 以上が必要。この PC は 24.12）。@vitejs/plugin-react は 5（6 は Vite 8 が必要）。宿泊客アプリの JS は 495 kB で Vite の 500 kB の警告に近い。後のタスクで分割を考える
+- 1.6：まだないもの：存在しない画面（G21）とルートの errorElement（後の画面のタスク）、社内用 nginx で front・cleaning を同じオリジンに載せる場合の basename（11.1）
+- 1.6：ルートの test から `--passWithNoTests` を外した（全パッケージにテストがある）

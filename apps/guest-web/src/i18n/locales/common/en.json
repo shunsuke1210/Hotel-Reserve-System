@@ -1,0 +1,18 @@
+{
+  "app": {
+    "title": "Hotel Reservations"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "errorBanner": {
+    "close": "Close"
+  },
+  "errors": {
+    "network": "Could not connect to the server. Please check your connection and try again.",
+    "unexpected": "A system error occurred. Please wait a moment and try again."
+  },
+  "time": {
+    "japanTime": "{{time}} (Japan time)"
+  }
+}

@@ -9,10 +9,14 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && pnpm -r run typecheck",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "check": "pnpm typecheck && pnpm test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:guest": "pnpm --filter @hotel/guest-web dev",
+    "dev:front": "pnpm --filter @hotel/front-web dev",
+    "dev:cleaning": "pnpm --filter @hotel/cleaning-web dev",
+    "build:web": "pnpm --filter \"@hotel/*-web\" build"
   },
   "devDependencies": {
     "@types/node": "catalog:",
