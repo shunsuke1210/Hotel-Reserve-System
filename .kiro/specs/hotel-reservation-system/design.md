@@ -939,6 +939,7 @@ erDiagram
 | L-48 | 形式の誤ったメールアドレスによるログイン（VALIDATION_FAILED。L-43）は、ログインの失敗の回数（L-7）に数えない（W-05） |
 | L-49 | 部屋の入れ替えの操作履歴は、target_type＝予約、target_id＝操作した側（reservationRoomIdA）の予約とし、もう一方の予約の ID は detail に入れる（W-06） |
 | L-50 | 模擬の決済は、一時的な障害を返した決済（末尾0119・0259）を記録しない。照合の findCharge は null を返す（W-08） |
+| L-51 | TOKEN_INVALID（POST /auth/verify-email、/auth/password-reset/confirm、/marketing/unsubscribe）の HTTP ステータスは 400。Error Handling の表に行を加えた（実装のタスク 1.1 で見つかった表の漏れ。技術の細部として推奨案で決定：DT-L4） |
 
 ## Error Handling
 
@@ -955,6 +956,7 @@ erDiagram
 |---|---|---|---|
 | VALIDATION_FAILED | 400 | 入力の形式・必須の誤り | 項目ごとに理由を表示 |
 | UNAUTHENTICATED | 401 | ログインしていない、セッション切れ | ログイン画面へ移り、ログイン後に元の画面へ戻す |
+| TOKEN_INVALID | 400 | メール確認・パスワード再設定・配信停止のリンクのトークンが無効・期限切れ・使用済み | リンクが無効であることを表示し、確認メールの再送・再設定の申込をやり直すよう案内（L-51） |
 | INVALID_CREDENTIALS | 401 | ID またはパスワードの誤り | どちらが誤りかは示さない |
 | EMAIL_NOT_VERIFIED | 403 | メールの確認が済んでいない | 確認メールの再送を案内 |
 | FORBIDDEN | 403 | 役割の権限がない | 「権限がありません」を表示（2.4）。ApiError.message も同じ文言（L-33） |

@@ -3,7 +3,7 @@
 各タスクは、設計書（design.md・design-screens.md。テスト設計で決めた細部は design.md の「設計の補足」）の内容を実装する。テストはそのタスクの中で一緒に書き、テスト名に受け入れ基準の ID（例：`[6.19]`）を入れる（traceability.md と照合するため）。日付と時刻はすべて日本時間の時計を通して扱う。
 
 - [ ] 1. 基盤：開発環境・データベース・API と画面の土台
-- [ ] 1.1 リポジトリと開発ツールを整え、API の契約の共通部分を作る
+- [x] 1.1 リポジトリと開発ツールを整え、API の契約の共通部分を作る
   - 宿泊客アプリ・フロントアプリ・清掃アプリ・API・共有の契約パッケージの5つを、1つのリポジトリで管理できるようにする
   - 型の検査、整形、単体テストの仕組みを全パッケージで使えるようにする
   - 契約パッケージに、列挙（予約の状態・部屋の状態・役割・年齢区分・言語・支払い方法など）とエラーの形・エラーコードの一覧を定める
@@ -517,3 +517,12 @@
 | 22.1, 22.2 | 返金・免除・料金の手動変更、操作履歴の閲覧 | A06, A07 |
 
 20.7（返金しない宿泊税の付け替え）はタスク 2.3・6.3 で、21.7（設定を変えても確定済みの料金を変えない）の仕組みはタスク 1.5・7.13 で、MVP の中で実現する。
+
+## Implementation Notes
+
+- 1.1：contracts は TypeScript のソースのまま共有している（exports → ./src/index.ts、ESM、import は .js の拡張子）。1.3 で NestJS を実行するときのビルドの方式（contracts のビルドまたは束ね方）を決める。apps/api には "type" がない（CommonJS）
+- 1.1：部屋の状態のグループ（VACANT・STAY・OTHER）は contracts の ROOM_STATUSES_BY_GROUP にある。2.5 の RoomStatusRules はこれを使い、定義し直さない
+- 1.1：pnpm 12 は依存のビルドスクリプトを既定で止める。必要なもの（Prisma、argon2 など）は pnpm-workspace.yaml の allowBuilds に加える（esbuild は追加済み）
+- 1.1：ルートの test は `vitest run --passWithNoTests`。全パッケージにテストができたら（1.3・1.6 の後）`--passWithNoTests` を外す
+- 1.1：検証のコマンドは `pnpm check`（全パッケージの型の検査＋テスト）と `pnpm format:check`
+- 1.1：TOKEN_INVALID の HTTP ステータスを 400 に決めた（design.md L-51。Error Handling の表の漏れ）

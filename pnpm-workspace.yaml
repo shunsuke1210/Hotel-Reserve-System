@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+
+# インストール時のスクリプトの実行を許可する依存関係（vite・vitest が使う esbuild）
+allowBuilds:
+  esbuild: true
+
+# 全パッケージで同じ版を使う依存関係（package.json では "catalog:" で参照する）
+catalog:
+  '@types/node': ^24.19.2
+  prettier: ^3.9.10
+  typescript: ~5.9.3
+  vite: ^7.3.7
+  vitest: ^5.0.5
+  zod: ^4.6.7

@@ -1,0 +1,5 @@
+# 仕様書（.kiro）は整形の対象にしない
+.kiro/
+pnpm-lock.yaml
+dist/
+coverage/
