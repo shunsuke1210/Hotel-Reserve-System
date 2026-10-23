@@ -53,7 +53,7 @@
   - _Requirements: 4.21, 16.4_
 
 - [ ] 2. 業務ルールの関数（フレームワークとデータベースに依存しない）
-- [ ] 2.1 (P) 暦のルールを作る
+- [x] 2.1 (P) 暦のルールを作る
   - 営業日（1:00 が日の境目）、暦の日付、その夜の割増（金・土・祝前日と特定期間のうち高いほう）、早期割の期限（暦の3か月前の同じ日、なければ月末）、無料キャンセルの期限（到着日15:00の48時間前）を求める
   - 完了状態：0:59 は前日・1:00 は当日、5/31 到着の期限が 2/28（うるう年は 2/29）、振替休日の前日が割増の対象、になることを単体テストで確認できる
   - _Requirements: 3.5, 3.6, 6.6, 6.7, 6.8, 6.12, 8.3_
@@ -563,3 +563,7 @@
 - 1.5：客室タイプのコードは STANDARD_KING・STANDARD_TWIN・DELUXE_KING・DELUXE_TWIN・PREMIUM_KING・SUITE・KANAZAWA_SUITE。振込先は hotel_settings のキー bank_transfer.bank_name・branch_name・account_type・account_number・account_holder（3.4 の PAYMENT_REQUEST と G19 はこのキーで読む）。料金の版1の effective_from は 2026-01-01 0:00（日本時間）
 - 1.5：祝日は内閣府の CSV（1955〜2027年）。2028年の分は内閣府の公表後に取り替える（手順は prisma/seed/holidays.ts のコメント）。予約は365日先まで受け付けるので、2027年の公表後は早めに更新すること
 - 1.5：仮の約款の第6条（ノーショー）には、団体のノーショー（DT-M23）の例外が書かれていない。仮の文章でシステムの対象外だが、正式な約款では直す
+- 2.1：暦は domain/calendar の createBusinessCalendar(holidays) で作る（祝日は holidays テーブルを読んで渡す。design の surchargeFor に祝日の引数がないため）。単独の surchargeFor は引数が4つ（祝日を含む）なので、各モジュールは createBusinessCalendar を通して使う
+- 2.1：作り直さずに使うこと：isEarlyBirdBooking（予約した日を暦の日付で判定。Q-PR-02。2.2・5.1 の早期割）、isWithinFreeCancellation（期限ちょうどを含む。2.3 の P-06）、atJapanTime（日付と0〜47時から瞬間を作る。25時は翌日1:00。団体の段階やノーショーの判定に）、operatingDate（1:00 が境目の営業日）、addDays・parseDate。入力の誤りは RangeError
+- 2.1：domain の JAPAN_TIME_ZONE と shared/clock の BUSINESS_TIME_ZONE は同じ値の重複。まとめるなら shared/clock が domain の定数を使う
+- 2.1：TC-PR-041〜044（早期割の期限の境目）は単体テストで確かめたが、テストケースでは見積もり API の結合テストなので 5.1 でも行う
