@@ -3,6 +3,7 @@
 // 接続先は API と同じ loadConfig で、リポジトリの最上位の .env などから読む（APP_ENV で環境を選ぶ）。
 // CLI はテーブルの所有者（マイグレーション用の利用者：MIGRATION_DATABASE_URL、test では TEST_MIGRATION_DATABASE_URL）で接続する。
 // 開発用のデータベースへの適用は、アプリ用の利用者の準備も行う pnpm db:migrate を使う（prisma/scripts/migrate.ts）。
+// 初期データの投入は pnpm db:seed（prisma/seed/main.ts）。prisma db seed も同じスクリプトを実行する。
 //
 // prisma generate などデータベースに接続しないコマンドは、設定ファイルがなくても動くようにする（pnpm install の直後など）。
 import { defineConfig } from 'prisma/config';
@@ -30,6 +31,6 @@ const url = migrationDatabaseUrl();
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
-  migrations: { path: 'prisma/migrations' },
+  migrations: { path: 'prisma/migrations', seed: 'tsx prisma/seed/main.ts' },
   ...(url === undefined ? {} : { datasource: { url } }),
 });
