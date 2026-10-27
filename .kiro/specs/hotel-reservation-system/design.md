@@ -918,7 +918,7 @@ erDiagram
 | Q-IT-7 | 定時処理が多重起動を防いで実行しなかった回は、job_runs に記録せず、ログにだけ出す |
 | L-24 | 登録の申込のとき、同じメールアドレス・電話番号の、確認の期限が切れた PENDING の申込（と auth_tokens）を同じトランザクションで削除してから登録する（Q-MB-2 の実現方法。U-21） |
 | L-25 | 予約の確定は行をロックして状態を確かめる。別の idempotencyKey ですでに CONFIRMED なら、決済せずに ALREADY_CONFIRMED（409）を返す。フロントの予約登録（POST /api/staff/reservations）にも idempotencyKey を加え、同じキーの再送は前に作った予約を返す（reservations.creation_idempotency_key。U-22） |
-| L-26 | 変更で部屋を割り当てられないとき（室数を増やす・日程を変える）は NO_AVAILABILITY（409）。追加の部屋は今の部屋と同じ階を優先し、離れたら SPLIT_FLOORS を作る（U-23） |
+| L-26 | 変更で部屋を割り当てられないとき（室数を増やす・日程を変える）は NO_AVAILABILITY（409）。追加の部屋は今の部屋と同じ階を優先し、離れたら SPLIT_FLOORS を作る（U-23）。同じ階に入らないときは、残す部屋と追加の部屋を合わせた全室に P-03 の2室以上の規則（使う階の数が最も少なく、番号の範囲が最も狭い）を当てて選ぶ（例：501 を残して 5F が満室なら 601）。追加の部屋だけに1室の規則を当てない（実装のタスク 2.4 で確認。RoomSelector の existingRooms） |
 | L-27 | 確認メールの再送（POST /auth/verify-email/resend）は、同じ IP から1分5回まで（RATE_LIMITED。U-24） |
 | L-28 | スタッフの停止は、内部の関数 StaffService.suspend（is_active を false にし、同じトランザクションでセッションを消す）として作る。MVP では開発者用のスクリプトから呼び、結合テストでこの関数を呼んで確かめる（U-25） |
 | L-29 | 決済の前に payments に PENDING の行を記録する。決済の後のデータベースの処理が失敗したら、その場で同じ額を返金して VOIDED にする。返金も失敗した行と、PENDING のまま5分を過ぎた行は、payment-reconcile（5分ごと）が PaymentGateway.findCharge で確かめ、決済されていれば返金して VOIDED にする。終わるまで警告の一覧に出す（U-26） |
