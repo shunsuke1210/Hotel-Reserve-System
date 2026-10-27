@@ -884,6 +884,9 @@ erDiagram
 | DT-M49 | DT-M41 で EXPIRED にした予約には HOLD_EXPIRED を作らない | P-04 手順6 |
 | DT-M50 | フロントの登録で決済が PAYMENT_GATEWAY_UNAVAILABLE のときも、予約を EXPIRED にして room_nights を解放する。payments の行は L-35 のとおり PENDING のまま照合に任せる | P-04 手順6 |
 | DT-M51 | DT-M42 の返金額には、取り消した夜の DOWNGRADE_ADJUSTMENT（負）と UPGRADE を含める（タイプを移した夜は差額を含めた額。DT-M21 と同じ） | P-07 手順3 |
+| DT-M52 | 早期割の予約に早期割なしで加えた夜がある場合、期限後の「1泊分」は早期割なしの夜の中で最初の夜（キャンセルはノーショーより厳しくなる。ユーザー決定） | P-06 |
+| DT-M53 | 期限後に人数・泊数・室数を同時に減らしたときの「1泊分」は、減らした部屋・人ごとの減らした最初の夜の料金の合計（ユーザー決定） | P-06 |
+| DT-M54 | 早期割の夜に早期割なしで加えた人がいる場合は明細ごとに分ける。加えた人の宿泊料金・宿泊税は通常の規定、早期割の人の分は返金しない。宿泊税の「一部でも返金される夜」は（夜・早期割の有無）ごとに判定する（ユーザー決定） | P-06, CancellationPolicy |
 
 ### 技術的な補足
 
@@ -946,6 +949,7 @@ erDiagram
 | L-54 | roster_entries の family_name・given_name・address・contact は、途中保存（L-19）のために空を許す。完了の判定（P-14）はこれらがそろっていることを確かめる。age_category は必須のまま（DT-L4） |
 | L-55 | メールアドレスの変更（DT-M4）では、確認前の新しいアドレスを auth_tokens.new_email に入れ、purpose は VERIFY_EMAIL を使う。確認が済んだ時点で members.email を切り替える（そのときにも有効な会員の間の重複を確かめる）。会員登録の確認では new_email は空（DT-L4） |
 | L-56 | 会員ごとの決済待ちは1件までの部分一意インデックスは、channel＝WEB の予約だけを対象にする（DT-M10：フロントの登録には当てない。フロントの登録も確保を経由するため：P-04 手順6） |
+| L-57 | DT-M54 のため、charge_lines に early_bird_applied（その明細に早期割を当てたか。boolean）を加える。明細を作るとき（5.4）に入れ、キャンセルの判定（CancellationPolicy）に渡す。マイグレーションは 5.4 で足す（実装のタスク 2.3 で見つかった点） |
 
 ## Error Handling
 

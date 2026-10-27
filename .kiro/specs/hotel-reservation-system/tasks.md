@@ -67,7 +67,7 @@
   - _Requirements: 4.10, 6.1, 6.2, 6.4, 6.5, 6.9, 6.10, 6.11, 6.13, 6.14, 6.15, 6.16, 6.19, 11.5_
   - _Boundary: PriceCalculator_
 
-- [ ] 2.3 キャンセル料と宿泊税の返金のルールを作る
+- [x] 2.3 キャンセル料と宿泊税の返金のルールを作る
   - 個人（期限内は0円、期限後は取り消した部屋・人の最初の夜）、団体（30日前・7日前・前日の各 0:00 を境に20%・50%・100%）、早期割（返金しない）、早期チェックアウト（残りの夜の部分キャンセル）を判定する
   - 宿泊料金が一部でも返金される夜の宿泊税は全額返金し、返金されない夜の宿泊税はキャンセル料・ノーショー料と同じ区分に付け替える
   - 料金の明細の型を使うので、2.2 の後に行う
@@ -572,3 +572,7 @@
 - 2.2：addedLater は判別共用体（AddedGuest：basePrice と earlyBirdEligible が必須／AddedBreakfast）。earlyBirdEligible は呼び出し側が決める。早期割の予約（事前決済）で、isEarlyBirdBooking（加えた時刻・到着日）が true のときだけ true にし、それ以外は false を渡す（true なら夜の控えに関係なく早期割がかかる）
 - 2.2：後から加えた分で、加えた時点の版から取るのは基本料金（人）と朝食の単価だけ。消費税率・宿泊税の区分・割増と割引の率・下限は、その夜の控えの版から取る
 - 2.2：朝食の人数が区分の人数を超えると PricingValidationError（RangeError の子クラス。code＝VALIDATION_FAILED、details あり）。呼び出し側は RangeError より先にこれを見分けて BusinessError（VALIDATION_FAILED）に変える。それ以外の組み立ての誤りは RangeError（プログラムの誤り）
+- 2.3：キャンセル料は domain/cancellation の evaluateCancellation（キャンセル・減らす変更・早期チェックアウト・日程の変更）と evaluateNoShow（ノーショー）。戻り値は CancellationEvaluation（rules・feeAmount・nonRefundableAmount・releasedStayAmount・返金しない宿泊税と返金する宿泊税の明細と額）。design の CancellationFee・ChangeQuote.cancellationFee は、6.x でこの形に合わせる（早期割の夜とそうでない夜が混ざると規定が2つになるため）
+- 2.3：取り消す宿泊料金の明細（RemovedStayLine）には UPGRADE・DOWNGRADE_ADJUSTMENT も入れ、明細ごとに earlyBirdApplied（L-57 の charge_lines.early_bird_applied から）を付ける。人数と泊数・室数を同時に減らすときは、減らした部屋・人ごとに removedUnit を必ず付ける（付け忘れるとエラーにならず、最も早い夜だけの額になる。DT-M53）。PricedLine から作るときは removedLinesFromPriced を使う
+- 2.3：決定：DT-M52（早期割の予約に早期割なしで加えた夜の期限後の1泊分は、早期割なしの夜の中で最初の夜）、DT-M53（同時に減らしたときは部屋・人ごとの最初の夜の合計）、DT-M54（早期割の夜に加えた人は明細ごとに分ける）。宿泊税の「一部でも返金される夜」は（夜・早期割の有無）ごとに判定する
+- 2.3：6.x で決めること：事前決済の予約で、キャンセル料に現地精算の UPGRADE の差額が含まれるときの精算の振り分け（事前の支払いから差し引くか、別に請求するか）。現地払いでは取り消した夜の宿泊税を請求しないので、付け替えは空
