@@ -59,7 +59,7 @@
   - _Requirements: 3.5, 3.6, 6.6, 6.7, 6.8, 6.12, 8.3_
   - _Boundary: BusinessCalendar_
 
-- [ ] 2.2 (P) 料金の計算を作る
+- [x] 2.2 (P) 料金の計算を作る
   - 夜ごと・年齢区分ごとの税込み単価（率の合算と −50% の下限、整数の計算、100円未満の切り捨て）、判定人数による人数割、連泊割、早期割を計算する
   - 区分ごとの朝食の人数（全泊に同じ人数）、部屋ごとの時間外（常に現地精算）、夜ごと・人ごとの宿泊税（5,000円未満は0円）の明細を作る
   - 完了状態：要件の計算例で、大人21,500円・子ども10,700円・宿泊税を除く合計61,900円・宿泊税600円になり、判定人数（2名1室→2、10名10室→0、10名5室→10）と宿泊税の境目（4,999／5,000／19,999／20,000円）の単体テストが通る
@@ -567,3 +567,8 @@
 - 2.1：作り直さずに使うこと：isEarlyBirdBooking（予約した日を暦の日付で判定。Q-PR-02。2.2・5.1 の早期割）、isWithinFreeCancellation（期限ちょうどを含む。2.3 の P-06）、atJapanTime（日付と0〜47時から瞬間を作る。25時は翌日1:00。団体の段階やノーショーの判定に）、operatingDate（1:00 が境目の営業日）、addDays・parseDate。入力の誤りは RangeError
 - 2.1：domain の JAPAN_TIME_ZONE と shared/clock の BUSINESS_TIME_ZONE は同じ値の重複。まとめるなら shared/clock が domain の定数を使う
 - 2.1：TC-PR-041〜044（早期割の期限の境目）は単体テストで確かめたが、テストケースでは見積もり API の結合テストなので 5.1 でも行う
+- 2.2：料金は domain/pricing の calculatePrice（priceCalculator）で計算する。金額は BigInt の整数で計算し、子どもの半額は分数のまま扱う。明細の並びは ROOM → BREAKFAST → 時間外 → LODGING_TAX。人数が1以上の区分は0円でも明細を作る（幼児）
+- 2.2：PricedLine には design にない任意の項目 roomIndex（時間外が offHours の何番目の部屋か）と addedLaterIndex（addedLater の何番目か）がある。charge_lines の reservation_room_id と rate_version_id（L-14）を記録するときに使う
+- 2.2：addedLater は判別共用体（AddedGuest：basePrice と earlyBirdEligible が必須／AddedBreakfast）。earlyBirdEligible は呼び出し側が決める。早期割の予約（事前決済）で、isEarlyBirdBooking（加えた時刻・到着日）が true のときだけ true にし、それ以外は false を渡す（true なら夜の控えに関係なく早期割がかかる）
+- 2.2：後から加えた分で、加えた時点の版から取るのは基本料金（人）と朝食の単価だけ。消費税率・宿泊税の区分・割増と割引の率・下限は、その夜の控えの版から取る
+- 2.2：朝食の人数が区分の人数を超えると PricingValidationError（RangeError の子クラス。code＝VALIDATION_FAILED、details あり）。呼び出し側は RangeError より先にこれを見分けて BusinessError（VALIDATION_FAILED）に変える。それ以外の組み立ての誤りは RangeError（プログラムの誤り）

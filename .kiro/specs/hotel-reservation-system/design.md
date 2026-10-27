@@ -358,7 +358,8 @@ interface PriceInput {
               lateCheckoutHour?: LateCheckoutHour; lateCheckoutRate?: RateVersionValues }[]; // 部屋ごと。料金は選んだ時点の版（L-34）
   addedLater?: { stayDate: string; kind: 'GUEST' | 'BREAKFAST'; ageCategory: AgeCategory; quantity: number;
                  rateVersion: RateVersionValues;  // 加えた時点の版（BREAKFAST は朝食の単価をここから取る）
-                 basePrice?: Yen }[];             // GUEST のとき、加えた時点の版の客室タイプの基本料金
+                 basePrice?: Yen;                 // GUEST のとき、加えた時点の版の客室タイプの基本料金
+                 earlyBirdEligible?: boolean }[]; // GUEST のとき、加えた時点で早期割の条件を満たすか（7.8。満たさなければ夜の控えが対象でも早期割をかけない）
   // 後から加えた人・朝食（counts・breakfastCounts の内数。L-45）。人数割・連泊割などの率は、その夜の控えの版から取る（CH-02a）
 }
 interface PricedLine {
@@ -933,7 +934,7 @@ erDiagram
 | L-42 | 操作履歴は、1つの操作（API の1回の要求）につき1行。action は操作の名前（例：CHECK_IN、ROOM_MOVE）。同時に変わる部屋の状態は detail に入れる。定時処理は対象1件につき1行（V-16） |
 | L-43 | ログイン（POST /auth/login）で、メールアドレスの形式が誤っていれば VALIDATION_FAILED（400）（V-17） |
 | L-44 | 下位タイプへの移動で、宿泊料金と宿泊税の差額を返金するときは、payments の REFUND を合わせて1行にする。返金完了のメールも合計額（V-18） |
-| L-45 | PriceInput に、後から加えた人・朝食とその「加えた時点の版」を渡す項目（addedLater）を加える。人は加えた時点の版の基本料金（basePrice）で、朝食は加えた時点の版の朝食の単価で計算する。人数割・連泊割などの率は、その夜の控えの版から取る（CH-02a）。L-34 の時間外と同じ考え方（要件 7.4、L-14）（V-20） |
+| L-45 | PriceInput に、後から加えた人・朝食とその「加えた時点の版」を渡す項目（addedLater）を加える。人は加えた時点の版の基本料金（basePrice）で、朝食は加えた時点の版の朝食の単価で計算する。人数割・連泊割などの率は、その夜の控えの版から取る（CH-02a）。後から加えた人の早期割は、加えた時点で条件を満たすか（earlyBirdEligible。要件 7.8）で決める。L-34 の時間外と同じ考え方（要件 7.4、L-14）（V-20） |
 | L-46 | PUT /reservation-rooms/{id}/off-hours の要求は、その部屋の時間外を丸ごと置き換える（項目がない、または null は「なし」）。画面は今の値を入れて送る（V-23） |
 | L-47 | 回数制限（L-40）の「直近60秒の要求の数」には、429 で断った要求を数えない（受け付けた要求だけを数える）（W-02） |
 | L-48 | 形式の誤ったメールアドレスによるログイン（VALIDATION_FAILED。L-43）は、ログインの失敗の回数（L-7）に数えない（W-05） |
