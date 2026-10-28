@@ -19,6 +19,7 @@ catalog:
   '@nestjs/common': ^11.2.7
   '@nestjs/core': ^11.2.7
   '@nestjs/platform-express': ^11.2.7
+  '@nestjs/schedule': ^6.1.3
   '@nestjs/testing': ^11.2.7
   '@prisma/adapter-pg': ^7.10.1
   '@prisma/client': ^7.10.1
@@ -34,6 +35,8 @@ catalog:
   '@types/supertest': ^7.2.1
   '@vitejs/plugin-react': ^5.2.0
   argon2: ^0.45.1
+  # @nestjs/schedule が固定している版と同じにする（CronJob の型と実体を1つにそろえる）
+  cron: 4.4.0
   i18next: ^26.5.3
   # jsdom 30 は Node.js 24.15 以上が必要なため 29 を使う
   jsdom: ^29.1.1

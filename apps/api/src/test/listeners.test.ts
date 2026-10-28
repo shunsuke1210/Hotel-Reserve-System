@@ -99,7 +99,8 @@ describe('API の起動（startApis）', () => {
   });
 
   it('[2.2] 1つのプロセスで公開用と社内用の2つの待ち受け口を立て、それぞれが自分の URL にだけ応答する', async () => {
-    const apis = await startApis({ guest: 0, staff: 0 }, { logger: false });
+    // 定時処理は始めない（データベースなしのテストで、時刻が来た処理が動かないように。始めることは job-scheduler.test.ts で確かめる）
+    const apis = await startApis({ guest: 0, staff: 0 }, { logger: false, scheduleJobs: false });
     try {
       const guestPort = (apis.guest.getHttpServer().address() as AddressInfo).port;
       const staffPort = (apis.staff.getHttpServer().address() as AddressInfo).port;

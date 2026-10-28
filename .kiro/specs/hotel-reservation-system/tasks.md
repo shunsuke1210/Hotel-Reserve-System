@@ -108,7 +108,7 @@
   - 完了状態：清掃員のセッションでフロント以上の操作を呼ぶと「権限がない」、管理者だけの操作をフロントが呼ぶと「権限がない」になる結合テストが通る
   - _Requirements: 1.10, 2.1, 2.2, 2.4, 2.5_
 
-- [ ] 3.2 定時処理の土台を作る
+- [x] 3.2 定時処理の土台を作る
   - 定時処理を日本時間の時刻で登録し、多重起動を防ぎ、開始・終了・結果を記録する
   - どの処理も、何度実行しても結果が同じになる作りを前提として、対象の選び方と記録の共通の仕組みを用意する
   - 完了状態：テスト用の処理を2つの実行で同時に起動しても1回だけ実行され、実行の記録が1件残る
@@ -595,3 +595,11 @@
 - 3.1：Cookie は `__Host-hotel-member-session`（Lax・7日）と `__Host-hotel-staff-session`（Strict・12時間）。Secure が必須なので、http://localhost の開発は Chromium では動くが Safari では保存されない。セッションの ID は DB に SHA-256 だけを保存する。期限切れのセッションをまとめて消す `SessionService.deleteExpired()` はまだどの定時処理からも呼んでいない（3.2 以降の定時処理でつなぐ。例：pending-cleanup と同じ時刻）
 - 3.1：結合テストの補助（src/test/auth/）：`signIn(app, realm, id)` でログイン済みの Cookie、`CSRF_HEADERS`、`insertStaff`・`insertMember`
 - 3.1：`.vscode/` は利用者のエディタの設定なので .prettierignore に加えた（コミットしない）
+- 3.2：業務の定時処理は modules/jobs に ScheduledJob を実装するクラスとして作り、JOB_CLASSES に加える（name は JobName、schedule は JOB_SCHEDULES[name]）。時刻は job-schedules.ts の JOB_SCHEDULES（日本時間の cron）で、CronJob に timeZone: Asia/Tokyo を付けて登録する。登録するのは社内用の待ち受け口だけで、startApis の scheduleJobs が true のとき（起動の時点では実行しない）
+- 3.2：対象ごとの処理は `ctx.processTargets` を使う（今の状態と ctx.now で対象を選び、自分のトランザクションの中で状態を確かめ直し、変わっていれば 'SKIPPED' を返す。1件の失敗はほかの対象を止めない）。多重起動は pg_try_advisory_xact_lock で防ぎ、job_runs に RUNNING → SUCCEEDED／FAILED を1件残す。detail にはエラーの名前とコードだけを書き、メッセージは書かない
+- 3.2：結合テストは `createTestListenerApp('staff', { prisma, clock })` で作り、`app.get(JobScheduler).runNow('名前')` で実行する。listeners.test.ts は scheduleJobs: false で起動している
+- 3.2：no-show は 1:00 を含む `*/15 * * * *` の1つの式で登録した。6.4 は「期限 ≤ ctx.now」で判定すること（1:00 ちょうどの回で拾う）
+- 3.2：接続の使い方：プール（既定10）は2つの待ち受け口と定時処理で共有し、実行中の処理はロックのために接続を1本持ち続ける。runInTransaction の中では tx だけを使う（プールの別の接続を取ると、処理が重なったときに足りなくなる）。本番の PrismaPg の `max` は 11.x で決める。ロックのトランザクションは処理の間 backend_xmin を持ち続ける（VACUUM が進まない）ので、長い処理が出たら、単純な問い合わせの方式か、専用の接続とセッション単位のロックに変える
+- 3.2：maxDurationMs（既定30分）を超えると次の回と重なりうる。3.4 の送信待ちの送信は、送信に時間切れを設け、送る前に状態を確かめ直す。日次の処理が NOT_STARTED（ロックを取れなかった）のときは job_runs に行が残らない（監視は後で考える）
+- 3.2：期限切れのセッションの削除（SessionService.deleteExpired）は 4.3 の pending-cleanup（4:00）から呼ぶ
+- 3.2：テストで process.env.TZ を変えるファイル（business-clock・job-schedules・job-scheduler・jobs.integration）では、TZ がもともと指定されていないと afterEach の `delete process.env.TZ` で Node の時間帯が元に戻らず、同じファイルの後のテストは変えた時間帯のまま動く（今のテストは時間帯に関係しないので問題ない。ファイルごとに別のプロセスなので、ほかのファイルにはもれない）。時間帯に関係するテストを同じファイルに足すときは、最初の時間帯を覚えておいて設定し直す

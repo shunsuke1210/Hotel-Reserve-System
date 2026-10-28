@@ -11,6 +11,7 @@ import {
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { GuestAppModule } from './guest-app.module.js';
+import { JobScheduler } from './modules/jobs/job-scheduler.js';
 import { ApiExceptionFilter } from './shared/errors/api-exception.filter.js';
 import type { ListenerName } from './shared/logging/request-context.js';
 import { RequestLogSink } from './shared/logging/request-log.js';
@@ -58,26 +59,34 @@ export async function createListenerApp(
 export interface RunningApis {
   guest: INestApplication;
   staff: INestApplication;
-  /** 2つの待ち受け口を閉じる */
+  /** 2つの待ち受け口を閉じる（定時処理は、実行中のものが終わるのを待ってから止まる） */
   close(): Promise<void>;
 }
 
+export interface StartApisOptions extends CreateListenerOptions {
+  /** 社内用の待ち受け口で定時処理を始めるか（省略時は true。起動の確認だけをするテストでは false） */
+  scheduleJobs?: boolean;
+}
+
 /**
- * 公開用と社内用の2つの待ち受け口を起動する。
+ * 公開用と社内用の2つの待ち受け口を起動し、社内用の待ち受け口で定時処理を始める（research.md ADR-03・ADR-09）。
+ * 定時処理はプロセスに1つの社内用の待ち受け口だけで動き、起動の時点では実行しない（最初の実行は次の時刻）。
  * @param ports 待ち受けるポート（省略時は公開用 3001・社内用 3002。0 なら空いているポート）
  */
 export async function startApis(
   ports: Partial<Record<ListenerName, number>> = {},
-  options: CreateListenerOptions = {},
+  options: StartApisOptions = {},
 ): Promise<RunningApis> {
-  const guest = await createListenerApp('guest', options);
-  const staff = await createListenerApp('staff', options);
+  const { scheduleJobs = true, ...listenerOptions } = options;
+  const guest = await createListenerApp('guest', listenerOptions);
+  const staff = await createListenerApp('staff', listenerOptions);
   const close = async (): Promise<void> => {
     await Promise.all([guest.close(), staff.close()]);
   };
   try {
     await guest.listen(ports.guest ?? LISTENERS.guest.port);
     await staff.listen(ports.staff ?? LISTENERS.staff.port);
+    if (scheduleJobs) staff.get(JobScheduler).start();
   } catch (error) {
     await close();
     throw error;

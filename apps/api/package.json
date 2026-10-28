@@ -18,9 +18,11 @@
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
     "@nestjs/platform-express": "catalog:",
+    "@nestjs/schedule": "catalog:",
     "@prisma/adapter-pg": "catalog:",
     "@prisma/client": "catalog:",
     "argon2": "catalog:",
+    "cron": "catalog:",
     "reflect-metadata": "catalog:",
     "rxjs": "catalog:",
     "zod": "catalog:"
