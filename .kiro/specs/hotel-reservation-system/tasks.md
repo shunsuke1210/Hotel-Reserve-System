@@ -114,7 +114,7 @@
   - 完了状態：テスト用の処理を2つの実行で同時に起動しても1回だけ実行され、実行の記録が1件残る
   - _Requirements: 4.17, 8.14, 12.5, 15.2, 19.1_
 
-- [ ] 3.3 (P) 操作履歴の記録を作る
+- [x] 3.3 (P) 操作履歴の記録を作る
   - 社内用 API の登録・変更・削除の操作ごとに、スタッフ番号・日時・操作の内容を記録する。定時処理の操作は「システム」として記録する
   - 完了状態：スタッフの更新の操作の後に操作履歴が1件増え、その履歴を変更しようとするとデータベースが拒否する
   - 操作の内容には、氏名・住所・連絡先・旅券番号などの個人情報の値を書かず、項目の名前と対象の ID だけを記録する
@@ -603,3 +603,10 @@
 - 3.2：maxDurationMs（既定30分）を超えると次の回と重なりうる。3.4 の送信待ちの送信は、送信に時間切れを設け、送る前に状態を確かめ直す。日次の処理が NOT_STARTED（ロックを取れなかった）のときは job_runs に行が残らない（監視は後で考える）
 - 3.2：期限切れのセッションの削除（SessionService.deleteExpired）は 4.3 の pending-cleanup（4:00）から呼ぶ
 - 3.2：テストで process.env.TZ を変えるファイル（business-clock・job-schedules・job-scheduler・jobs.integration）では、TZ がもともと指定されていないと afterEach の `delete process.env.TZ` で Node の時間帯が元に戻らず、同じファイルの後のテストは変えた時間帯のまま動く（今のテストは時間帯に関係しないので問題ない。ファイルごとに別のプロセスなので、ほかのファイルにはもれない）。時間帯に関係するテストを同じファイルに足すときは、最初の時間帯を覚えておいて設定し直す
+- 3.3：操作履歴は `AuditLogService.record(tx, actor, entry)` で、各サービスの操作のトランザクションの中から明示的に呼ぶ（インターセプターではない）。トランザクションの外の接続を渡すと断り、同じトランザクションで2行目を書くと断る（L-42 の1操作1行）。ただし `tx.$transaction` の入れ子の中は別のトランザクションとして扱われてすり抜けるので、入れ子の中で記録しない
+- 3.3：記録する人は、スタッフは `staffActor(@CurrentStaff())`（staff_id とスタッフ番号）、定時処理は `systemActor(ctx)`（staff_id は空、actor_label は `SYSTEM:{処理名}`、detail.jobRunId）。定時処理は processTargets の process の tx の中で、対象1件につき1行を記録する。design の `createByFront(staffId, …)` のようにスタッフ ID だけを受け取るメソッドは、スタッフ番号も要るので AuditActor を受け取る形にする
+- 3.3：detail に入れられるのは fields（項目の名前：英字の識別子。数字は不可）・refs（`…Id`／`…Ids` に UUID。L-49 は `otherReservationId`）・roomStatusChanges（{roomId, from, to}）だけで、値は書かない。形の検査では英字だけの名前（ローマ字の氏名など）は防げないので、呼び出し側は検証済みの入力のキーやスキーマの項目の名前だけを渡す。名簿の追加項目（14.5）のキーに数字や `-` が入りうるので、6.x では `extra` だけを記録するか、キーの形をそろえる（そのまま渡すと RangeError で名簿の保存が失敗する）
+- 3.3：操作の名前（AUDIT_ACTIONS）と対象の種類（AUDIT_TARGET_TYPES）は閉じた一覧。target_id は UUID に限る。新しい操作・対象（hold-expiry・retention が記録するなら、その名前。後のフェーズの hotel_settings.key などの UUID でない対象）は、そのタスクで一覧と形を広げる。移動・時間外・入金・チェックインの対象は予約にし、reservationRoomId・toRoomId・paymentId などは refs に入れる
+- 3.3：3.7 の RoomStatusService は、業務の操作（チェックインなど）から呼ばれる入口では自分で記録せず、AuditRoomStatusChange を返して、呼び出し側の1行の detail.roomStatusChanges に入れる（自分で記録すると2行目として断られる）。手動の POST /rooms/{id}/status だけが ROOM_STATUS_CHANGE を自分で記録する
+- 3.3：失敗した操作は記録しない（例外で取り消されるので行は残らない）。変更を確定してから業務エラーを返す処理（DT-M41 の PAYMENT_DECLINED など）は例外で取り消されないので、記録するかどうか（TC-MB-219 の「失敗した操作」に当たるか）をそのタスクで確かめる
+- 3.3：AuditModule（@Global）は社内用の待ち受け口にだけ登録した。公開用と共有するサービス（6.x の変更など）で注入するときは GuestAppModule にも加える。結合テストの補助は src/test/audit.ts（listAuditLogs・countAuditLogs・personalValuesIn）で、TC-MB-386・387・391 は名簿・予約・退会のタスクでこれを使って確かめる
