@@ -3,6 +3,7 @@ import {
   ERROR_CODES,
   ERROR_HTTP_STATUS,
   FORBIDDEN_MESSAGE,
+  LOCALES,
   type ErrorCode,
   type Result,
 } from '@hotel/contracts';
@@ -19,6 +20,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { toApiErrorResponse } from './api-error-response.js';
 import { BusinessError, unwrapResult } from './business-error.js';
+import { defaultErrorMessage, errorMessage } from './error-messages.js';
 
 describe('toApiErrorResponse（例外を契約のエラーの形に変換する）', () => {
   it.each(ERROR_CODES)('業務エラー %s は、契約の HTTP ステータスと ApiError の形になる', (code) => {
@@ -106,6 +108,72 @@ describe('toApiErrorResponse（例外を契約のエラーの形に変換する�
     expect(body.details).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('secret');
     expect(JSON.stringify(body)).not.toContain('10.0.0.5');
+  });
+});
+
+describe('ApiError.message の言語（宿泊客向けは選んだ言語、スタッフ向けは日本語。設計の補足 L-11）', () => {
+  it.each(ERROR_CODES)('[16.2] %s の既定の文言が5言語すべてにあり、言語ごとに異なる', (code) => {
+    const messages = LOCALES.map((locale) => errorMessage(code, locale));
+    for (const message of messages) {
+      expect(message.trim().length).toBeGreaterThan(0);
+    }
+    expect(new Set(messages).size).toBe(LOCALES.length);
+  });
+
+  it('[16.2] 文言を渡さない業務エラーは、指定した言語の既定の文言になる', () => {
+    expect(toApiErrorResponse(new BusinessError('OUT_OF_BOOKING_WINDOW'), 'ko').body).toEqual({
+      code: 'OUT_OF_BOOKING_WINDOW',
+      message: errorMessage('OUT_OF_BOOKING_WINDOW', 'ko'),
+    });
+    expect(errorMessage('OUT_OF_BOOKING_WINDOW', 'ko')).toMatch(/[가-힣]/);
+    expect(errorMessage('OUT_OF_BOOKING_WINDOW', 'en')).toMatch(/365 days/);
+  });
+
+  it('言語を指定しなければ日本語（スタッフ向け）', () => {
+    expect(toApiErrorResponse(new BusinessError('NOT_FOUND')).body.message).toBe(
+      errorMessage('NOT_FOUND', 'ja'),
+    );
+    expect(defaultErrorMessage('NOT_FOUND')).toBe(errorMessage('NOT_FOUND', 'ja'));
+  });
+
+  it('[16.2] 5言語の文言（LocalizedText）を渡した業務エラーは、その言語の文言を返す', () => {
+    const message = {
+      ja: '日本語の文言',
+      en: 'English text',
+      ko: '한국어 문구',
+      'zh-Hans': '简体中文',
+      'zh-Hant': '繁體中文',
+    };
+    for (const locale of LOCALES) {
+      expect(
+        toApiErrorResponse(new BusinessError('HOLD_EXPIRED', { message }), locale).body,
+      ).toEqual({ code: 'HOLD_EXPIRED', message: message[locale] });
+    }
+  });
+
+  it('[16.2] 日本語だけの文言（文字列）を渡した業務エラーは、日本語ならその文言、ほかの言語なら既定の文言を返す', () => {
+    const error = new BusinessError('HOLD_EXPIRED', { message: '確保の期限が切れました' });
+    expect(toApiErrorResponse(error, 'ja').body.message).toBe('確保の期限が切れました');
+    expect(toApiErrorResponse(error, 'en').body.message).toBe(errorMessage('HOLD_EXPIRED', 'en'));
+  });
+
+  it('[2.4] FORBIDDEN の日本語は「権限がありません」で、渡した文言より優先する（L-33）', () => {
+    expect(errorMessage('FORBIDDEN', 'ja')).toBe(FORBIDDEN_MESSAGE);
+    expect(
+      toApiErrorResponse(new BusinessError('FORBIDDEN', { message: 'Forbidden resource' }), 'en')
+        .body.message,
+    ).toBe(errorMessage('FORBIDDEN', 'en'));
+  });
+
+  it('[16.2] フレームワークの例外（URL が見つからないなど）と想定外の例外も、指定した言語の文言になる', () => {
+    expect(toApiErrorResponse(new NotFoundException('Cannot GET /x'), 'zh-Hant').body).toEqual({
+      code: 'NOT_FOUND',
+      message: errorMessage('NOT_FOUND', 'zh-Hant'),
+    });
+    expect(toApiErrorResponse(new Error('boom'), 'zh-Hans').body).toEqual({
+      code: 'INTERNAL',
+      message: errorMessage('INTERNAL', 'zh-Hans'),
+    });
   });
 });
 

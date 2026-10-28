@@ -124,6 +124,7 @@ describe('要求ごとのログ', () => {
     };
     const res = await request(guest.getHttpServer())
       .post('/api/guest/test-log/members')
+      .set('X-Requested-With', 'XMLHttpRequest')
       .query({ query: '山田太郎', email: pii.email })
       .set('Cookie', 'sid=session-id-secret')
       .set('Authorization', 'Bearer token-secret')

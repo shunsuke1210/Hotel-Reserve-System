@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { BusinessClock } from '../../shared/clock/business-clock.js';
+import { AllowAnonymous } from '../../shared/session/auth.decorators.js';
 
 /** 稼働確認の応答 */
 export interface HealthResponse {
@@ -8,7 +9,8 @@ export interface HealthResponse {
   time: string;
 }
 
-/** 稼働確認（公開用は /api/guest/health、社内用は /api/staff/health） */
+/** 稼働確認（公開用は /api/guest/health、社内用は /api/staff/health）。ログインせずに使える */
+@AllowAnonymous()
 @Controller('health')
 export class HealthController {
   constructor(private readonly clock: BusinessClock) {}

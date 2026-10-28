@@ -1,5 +1,6 @@
 import { Catch, Logger, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { requestLocale } from '../i18n/request-locale.js';
 import { findRequestContext } from '../logging/request-context.js';
 import { toApiErrorResponse } from './api-error-response.js';
 
@@ -7,6 +8,7 @@ import { toApiErrorResponse } from './api-error-response.js';
  * すべての例外を受け、契約のエラーの形（ApiError）で応答する。
  * 業務エラー（BusinessError）、フレームワークの例外（URL が見つからない、JSON の形式の誤り、権限の確認での拒否など）、
  * 想定外の例外のすべてが対象。想定外の例外の内容は応答に含めず、要求 ID とともにサーバーのログに残す。
+ * 文言は要求の言語（公開用 API は選んだ言語、社内用 API は日本語。設計の補足 L-11）で作る。
  */
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -17,7 +19,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const req = http.getRequest<Request>();
     const res = http.getResponse<Response>();
 
-    const { status, body } = toApiErrorResponse(exception);
+    const { status, body } = toApiErrorResponse(exception, requestLocale(req));
     const context = findRequestContext(req);
     if (context) {
       context.errorCode = body.code;

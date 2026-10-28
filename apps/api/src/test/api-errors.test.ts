@@ -13,16 +13,21 @@ import {
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BusinessError } from '../shared/errors/business-error.js';
+import { AllowAnonymous } from '../shared/session/auth.decorators.js';
 import { createTestListenerApp } from './listener-app.js';
 
-/** 常に拒否する、権限の確認の代わり（役割の判定は後のタスクの RolesGuard が行う） */
+/**
+ * 常に拒否する確認（フレームワークの ForbiddenException の変換を確かめる）。
+ * 役割の判定そのもの（RolesGuard）は shared/session/session.integration.test.ts で確かめる
+ */
 class DenyAllGuard implements CanActivate {
   canActivate(): boolean {
     return false;
   }
 }
 
-/** テストのためだけに、例外を投げる URL を用意する */
+/** テストのためだけに、例外を投げる URL を用意する（社内用 API でもログインせずに呼べるようにする） */
+@AllowAnonymous()
 @Controller('test-errors')
 class ErrorTestController {
   @Get('business/:code')

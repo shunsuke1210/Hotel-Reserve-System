@@ -4,12 +4,14 @@ packages:
 
 # インストール時のスクリプトの実行を許可する依存関係
 # （esbuild：vite・vitest・tsx が使う。@swc/core：API のビルドとテストで使う。
-#   @prisma/engines：マイグレーションに使うスキーマエンジンを取得する。prisma：Node.js の版を確かめる）
+#   @prisma/engines：マイグレーションに使うスキーマエンジンを取得する。prisma：Node.js の版を確かめる。
+#   argon2：パスワードのハッシュ化（Argon2id）のネイティブモジュールを用意する）
 allowBuilds:
   esbuild: true
   '@swc/core': true
   '@prisma/engines': true
   prisma: true
+  argon2: true
 
 # 全パッケージで同じ版を使う依存関係（package.json では "catalog:" で参照する）
 catalog:
@@ -31,6 +33,7 @@ catalog:
   '@types/react-dom': ^19.3.0
   '@types/supertest': ^7.2.1
   '@vitejs/plugin-react': ^5.2.0
+  argon2: ^0.45.1
   i18next: ^26.5.3
   # jsdom 30 は Node.js 24.15 以上が必要なため 29 を使う
   jsdom: ^29.1.1

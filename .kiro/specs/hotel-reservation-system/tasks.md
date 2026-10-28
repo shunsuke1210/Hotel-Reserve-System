@@ -100,7 +100,7 @@
   - _Boundary: GroupEvaluator_
 
 - [ ] 3. 共通のサービス
-- [ ] 3.1 セッションと認証・権限の共通部品を作る
+- [x] 3.1 セッションと認証・権限の共通部品を作る
   - 会員とスタッフで別の種類のセッションをデータベースに保存し、Cookie（HttpOnly・Secure・SameSite）で受け渡す。ログインの成功時に ID を作り直す
   - 会員用・スタッフ用の認証の確認、役割の判定（管理者＞フロント＞清掃員）、他サイトからの要求の拒否（独自のヘッダー）、ログインの回数制限、パスワードのハッシュ化を入れる
   - 公開用の待ち受け口はスタッフのセッションを受け付けない
@@ -587,3 +587,11 @@
 - 2.6：団体の判定は domain/group の evaluateGroup（groupEvaluator.isGroup・evaluate）。確定・変更のときだけ呼ぶ（確保の時点では呼ばない。TC-RS-280）。結果は maxRoomCount・isGroup（一度 true なら戻さない）・peakNightlyRoomCount・othersToMarkAsGroup（今 false で団体にするほかの予約）
 - 2.6：合算は、対象の予約と夜が直接重なる同じ会員の有効な予約（CONFIRMED・CHECKED_IN・CHECKED_OUT・NO_SHOW）を、今の室数で夜ごとに足す。最大が5以上なら、重なる予約すべてを団体にする（5室になった夜に泊まらない予約も含む。8.8・PY-14a の文言どおり）。夜が接するだけ（出発日＝相手の到着日）は重ならない
 - 2.6：呼び出し側（5.x・6.x）の注意：others には合算の対象の状態の予約だけを渡す（全室を取り消した CANCELLED の予約を室数0で渡すと RangeError で確定が失敗する）。NO_SHOW の予約の夜を、残った1泊目だけにするか、もとの夜にするかも呼び出し側で決める（P-07 手順2 で2泊目以降の room_nights を消すため）
+- 3.1：ログイン（4.1・4.3）は `LoginAttemptLimiter.verify(loginAttemptKey(req, realm, id), async () => 行か undefined)` で回数制限と失敗の数え方（L-7・L-47）を処理し、誤りなら INVALID_CREDENTIALS（スタッフの文言は「スタッフ番号またはパスワードが違います」）。その後 `SessionService.start(req, res, realm, id)`（ID を作り直す）。ログアウトは `end`、スタッフの停止（L-28）と退会は `endAllFor(realm, id, tx)`（同じトランザクションで呼べる）。パスワードは `PasswordHasher.hash`・`verify`（ハッシュがなくても同じ時間だけ計算する）。パスワードの長さの上限は 4.x の入力の検証で設ける
+- 3.1：社内用は標準で全操作にログインが要る。ログインと稼働確認だけに `@AllowAnonymous()`（3.4 の `/dev/mails` に付けるかは 3.4 で決める）。役割は `@RequireRole('FRONT'|'ADMIN')`、付けなければ清掃員以上。**FRONT 以上の API に付け忘れると清掃員に開いてしまう**ので、社内用の全ルートが RequireRole か AllowAnonymous を明示しているかを列挙して確かめるテストを、API ができた後（7.x）に足す（クラスの @AllowAnonymous はメソッドの @RequireRole より優先される）。本人は `@CurrentStaff()`（staffNumber は操作履歴に使う）
+- 3.1：公開用は会員だけの操作に `@MemberOnly()`、会員 ID は `@CurrentMember()`（要件 1.10 の絞り込みは必ずこれを使う）。確認の順序は 独自ヘッダー（X-Requested-With）→ 認証 → 役割（ヘッダーのない未ログインの要求は 403）
+- 3.1：エラーの文言は error-messages.ts の45コード×5言語（訳文はモデルが作ったもの。母語話者の確認を勧める）。宿泊客向けに独自の文言を出すときは BusinessError に LocalizedText（5言語）を渡す。要求の言語は `requestLocale(req)`。社内用は常に日本語
+- 3.1：ほかの回数制限（L-27・L-40・L-47）は `RequestRateLimiter(clock, {limit, windowMs}).consume(key)`。回数制限の記録は待ち受け口ごとのメモリ（再起動で消える）。送り元の IP は req.ip なので、nginx の後ろ（11.1）では Express の trust proxy を設定する（しないと全員が nginx の IP になる）
+- 3.1：Cookie は `__Host-hotel-member-session`（Lax・7日）と `__Host-hotel-staff-session`（Strict・12時間）。Secure が必須なので、http://localhost の開発は Chromium では動くが Safari では保存されない。セッションの ID は DB に SHA-256 だけを保存する。期限切れのセッションをまとめて消す `SessionService.deleteExpired()` はまだどの定時処理からも呼んでいない（3.2 以降の定時処理でつなぐ。例：pending-cleanup と同じ時刻）
+- 3.1：結合テストの補助（src/test/auth/）：`signIn(app, realm, id)` でログイン済みの Cookie、`CSRF_HEADERS`、`insertStaff`・`insertMember`
+- 3.1：`.vscode/` は利用者のエディタの設定なので .prettierignore に加えた（コミットしない）
