@@ -1,12 +1,15 @@
 // テスト用に、本番と同じモジュールと共通の設定で待ち受け口のアプリを作る（ポートでは待ち受けない）。
-// 時計・要求のログと定時処理のログの出力先・データベース（PrismaService）・定時処理の一覧は、テストから差し替えられる。
+// 時計・要求のログと定時処理のログの出力先・データベース（PrismaService）・定時処理の一覧・メールの設定・
+// 任意のプロバイダー（overrides）は、テストから差し替えられる。読み込むモジュールの環境（appEnv）も選べる。
 // データベースは、指定しなければ使えない（単体テストはデータベースなしで動く。pnpm check）。
 // 社内用の待ち受け口でも定時の起動は始めない（JobScheduler.start() を呼ばない）。定時処理は runNow で実行する。
 import type { INestApplication, Type } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import { configureListener, LISTENERS } from '../listeners.js';
+import { configureListener, listenerRootModule } from '../listeners.js';
 import { SCHEDULED_JOBS } from '../modules/jobs/job-scheduler.js';
+import { MailSettings } from '../modules/notifications/mail-settings.js';
+import { currentAppEnv, type AppEnv } from '../shared/config/app-config.js';
 import { BusinessClock } from '../shared/clock/business-clock.js';
 import { JobLogSink } from '../shared/jobs/job-log.js';
 import type { ScheduledJob } from '../shared/jobs/scheduled-job.js';
@@ -14,6 +17,7 @@ import { PrismaService } from '../shared/prisma/prisma.service.js';
 import type { ListenerName } from '../shared/logging/request-context.js';
 import { RequestLogSink, type RequestLogEntry } from '../shared/logging/request-log.js';
 import { MemoryJobLogSink } from './jobs.js';
+import { TEST_MAIL_SETTINGS } from './mail.js';
 
 /** 要求のログをメモリに貯める出力先（テスト用） */
 export class MemoryRequestLogSink extends RequestLogSink {
@@ -42,6 +46,18 @@ export interface TestListenerOptions {
   jobLogSink?: JobLogSink;
   /** 社内用の待ち受け口に登録する定時処理（省略時は本番と同じ。テスト用の処理だけにするときに指定する） */
   jobs?: ScheduledJob[];
+  /**
+   * 読み込むモジュールを決める環境（省略時は APP_ENV。production にすると開発用の機能（GET /dev/mails）を読み込まない）。
+   * 設定ファイルの読み込みには関係しない
+   */
+  appEnv?: AppEnv;
+  /** メールの設定（省略時は TEST_MAIL_SETTINGS。設定ファイルを読まない） */
+  mailSettings?: MailSettings;
+  /**
+   * 差し替えるプロバイダー（例：{ provide: MailSender, useValue: new TestMailSender() }）。
+   * 模擬の外部サービスはプロセスで共有されるので、状態を持ち越さないようにテストごとに差し替える（tasks.md 1.7）
+   */
+  overrides?: readonly { provide: unknown; useValue: unknown }[];
 }
 
 /** PrismaService を調べるだけの操作（NestJS のライフサイクルの確認など）では、失敗させずに undefined を返す */
@@ -73,7 +89,7 @@ export async function createTestListenerApp(
   options: TestListenerOptions = {},
 ): Promise<INestApplication> {
   const builder = Test.createTestingModule({
-    imports: [LISTENERS[listener].module],
+    imports: [listenerRootModule(listener, options.appEnv ?? currentAppEnv())],
     controllers: options.controllers ?? [],
   });
   if (options.clock) {
@@ -83,6 +99,10 @@ export async function createTestListenerApp(
   if (listener === 'staff') {
     builder.overrideProvider(JobLogSink).useValue(options.jobLogSink ?? new MemoryJobLogSink());
     if (options.jobs) builder.overrideProvider(SCHEDULED_JOBS).useValue(options.jobs);
+  }
+  builder.overrideProvider(MailSettings).useValue(options.mailSettings ?? TEST_MAIL_SETTINGS);
+  for (const override of options.overrides ?? []) {
+    builder.overrideProvider(override.provide).useValue(override.useValue);
   }
   if (options.prisma !== 'process') {
     builder.overrideProvider(PrismaService).useValue(options.prisma ?? createNoDatabasePrisma());

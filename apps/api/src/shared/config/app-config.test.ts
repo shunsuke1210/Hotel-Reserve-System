@@ -6,9 +6,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   APP_ENVS,
   ConfigError,
+  currentAppEnv,
+  DEFAULT_GUEST_WEB_BASE_URL,
   describeDatabaseTarget,
   findEnvDir,
   loadConfig,
+  loadMailLinkConfig,
   requireMigrationDatabaseUrl,
   type LoadConfigOptions,
 } from './app-config.js';
@@ -368,5 +371,113 @@ describe('ひな形の .env.example と docker-compose.yml', () => {
     for (const name of referenced) {
       expect(values, `${name} が .env.example にありません`).toHaveProperty(String(name));
     }
+  });
+});
+
+describe('メールのリンクの設定（loadMailLinkConfig。tasks.md 3.4）', () => {
+  const MAIL_SECRET = 'mail-link-secret-0123456789abcdefghijklmnop';
+
+  it('development・test では省略でき、宿泊客アプリの開発用の URL と、鍵なし（使う側が乱数で作る）になる', () => {
+    for (const appEnv of ['development', 'test'] as const) {
+      expect(loadMailLinkConfig({ envDir, appEnv, processEnv: {} })).toEqual({
+        appEnv,
+        guestWebBaseUrl: DEFAULT_GUEST_WEB_BASE_URL,
+        unsubscribeTokenSecret: undefined,
+      });
+    }
+    expect(DEFAULT_GUEST_WEB_BASE_URL).toBe('http://localhost:5173');
+  });
+
+  it('設定ファイルと環境変数から読み、URL の末尾の「/」を取り除く', () => {
+    writeEnvFile('.env', [
+      'GUEST_WEB_BASE_URL=http://localhost:5173/',
+      `UNSUBSCRIBE_TOKEN_SECRET=${MAIL_SECRET}`,
+    ]);
+    expect(loadMailLinkConfig({ envDir, appEnv: 'development', processEnv: {} })).toEqual({
+      appEnv: 'development',
+      guestWebBaseUrl: 'http://localhost:5173',
+      unsubscribeTokenSecret: MAIL_SECRET,
+    });
+    expect(
+      loadMailLinkConfig({
+        envDir,
+        appEnv: 'development',
+        processEnv: { GUEST_WEB_BASE_URL: 'https://hotel.example.com/guest/' },
+      }).guestWebBaseUrl,
+    ).toBe('https://hotel.example.com/guest');
+  });
+
+  it('production では、https の URL と32文字以上の鍵が必須（値は文言に出さない）', () => {
+    const missing = catchConfigError(() =>
+      loadMailLinkConfig({ envDir, appEnv: 'production', processEnv: {} }),
+    );
+    expect(missing.problems.map((p) => p.key)).toEqual([
+      'GUEST_WEB_BASE_URL',
+      'UNSUBSCRIBE_TOKEN_SECRET',
+    ]);
+
+    const weak = catchConfigError(() =>
+      loadMailLinkConfig({
+        envDir,
+        appEnv: 'production',
+        processEnv: {
+          GUEST_WEB_BASE_URL: `http://hotel.example.com/?k=${SECRET}`,
+          UNSUBSCRIBE_TOKEN_SECRET: SECRET,
+        },
+      }),
+    );
+    expect(weak.problems.map((p) => p.key)).toEqual([
+      'GUEST_WEB_BASE_URL',
+      'UNSUBSCRIBE_TOKEN_SECRET',
+    ]);
+    expect(JSON.stringify(weak.problems)).not.toContain(SECRET);
+
+    expect(
+      loadMailLinkConfig({
+        envDir,
+        appEnv: 'production',
+        processEnv: {
+          GUEST_WEB_BASE_URL: 'https://hotel.example.com',
+          UNSUBSCRIBE_TOKEN_SECRET: MAIL_SECRET,
+        },
+      }),
+    ).toEqual({
+      appEnv: 'production',
+      guestWebBaseUrl: 'https://hotel.example.com',
+      unsubscribeTokenSecret: MAIL_SECRET,
+    });
+  });
+
+  it.each([
+    ['http(s) 以外', 'ftp://hotel.example.com'],
+    ['URL でない値', 'hotel.example.com'],
+    ['利用者名・パスワードつき', `https://user:${SECRET}@hotel.example.com`],
+    ['ハッシュつき', 'https://hotel.example.com/#top'],
+  ])('GUEST_WEB_BASE_URL に %s は受け付けない', (_label, value) => {
+    const error = catchConfigError(() =>
+      loadMailLinkConfig({
+        envDir,
+        appEnv: 'development',
+        processEnv: { GUEST_WEB_BASE_URL: value },
+      }),
+    );
+    expect(error.problems.map((p) => p.key)).toEqual(['GUEST_WEB_BASE_URL']);
+  });
+
+  it('DATABASE_URL などのほかの項目がなくても読める（メールの設定だけを確かめる）', () => {
+    expect(() =>
+      loadMailLinkConfig({ envDir, appEnv: 'development', processEnv: {} }),
+    ).not.toThrow();
+  });
+});
+
+describe('currentAppEnv（APP_ENV だけを読む。環境ごとに読み込むモジュールを決めるため）', () => {
+  it('APP_ENV の値（省略時は development）を返し、想定外の値なら失敗する', () => {
+    expect(currentAppEnv({ APP_ENV: 'production' })).toBe('production');
+    expect(currentAppEnv({ APP_ENV: ' test ' })).toBe('test');
+    expect(currentAppEnv({})).toBe('development');
+    expect(catchConfigError(() => currentAppEnv({ APP_ENV: 'staging' })).problems[0]?.key).toBe(
+      'APP_ENV',
+    );
   });
 });

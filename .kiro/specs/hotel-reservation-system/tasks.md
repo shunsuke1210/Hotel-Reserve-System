@@ -122,7 +122,7 @@
   - _Requirements: 18.1, 18.2, 18.3_
   - _Boundary: AuditLogService_
 
-- [ ] 3.4 (P) メールの作成と送信を作る
+- [x] 3.4 (P) メールの作成と送信を作る
   - 設計の P-15 のテンプレートを5言語分用意し、会員が選んだ言語でメールを作って送信待ちに入れる
   - 送信待ちを毎分送る定時処理（3.2 の土台を使う）を登録し、失敗したら最大5回まで再送する
   - 定期配信のメールには送信者の名称と配信停止のリンク（署名つき）を必ず入れ、同意が最新で有効な会員にだけ送る
@@ -610,3 +610,13 @@
 - 3.3：3.7 の RoomStatusService は、業務の操作（チェックインなど）から呼ばれる入口では自分で記録せず、AuditRoomStatusChange を返して、呼び出し側の1行の detail.roomStatusChanges に入れる（自分で記録すると2行目として断られる）。手動の POST /rooms/{id}/status だけが ROOM_STATUS_CHANGE を自分で記録する
 - 3.3：失敗した操作は記録しない（例外で取り消されるので行は残らない）。変更を確定してから業務エラーを返す処理（DT-M41 の PAYMENT_DECLINED など）は例外で取り消されないので、記録するかどうか（TC-MB-219 の「失敗した操作」に当たるか）をそのタスクで確かめる
 - 3.3：AuditModule（@Global）は社内用の待ち受け口にだけ登録した。公開用と共有するサービス（6.x の変更など）で注入するときは GuestAppModule にも加える。結合テストの補助は src/test/audit.ts（listAuditLogs・countAuditLogs・personalValuesIn）で、TC-MB-386・387・391 は名簿・予約・退会のタスクでこれを使って確かめる
+- 3.4：メールは `MailService.enqueue(tx, memberId, template, payload, { toAddress? })` で、呼び出し側のトランザクションの中で送信待ち（mail_outbox の PENDING）に入れる。言語と宛先は、作った時点の会員の preferred_locale とメールアドレス。payload はテンプレートごとの zod の型で、全項目が必須（記載しない金額は 0、該当しない値は null）。客室タイプの名称などは、会員の言語を受け取る関数の形で渡せる。予約者のいない（member_id が空の）予約にはメールを作れない。PAYMENT_REQUEST の振込先は MailService が hotel_settings の bank_transfer.* から読む
+- 3.4：文面（件名・本文）は送るときと /dev/mails を見るときに payload から作る（mail_outbox に本文の列がないため）。確認・再設定のトークンは payload に入るので、会員の削除（DT-M34）と 4.3 の pending-cleanup では `MailService.deleteForMember()` を呼ぶ
+- 3.4：宿泊客の画面のリンクは `/verify-email?token=`、`/password-reset?token=`、`/unsubscribe?token=`（mail-links.ts の GUEST_LINK_PATHS）。8.x の画面は同じパスで作る。URL のトークンが nginx のログに残らないようにする設定は 11.1 で検討する
+- 3.4：定期配信は `enqueueMarketing`（1人）と `enqueueMarketingToConsentedMembers`（全員）だけで作れる（enqueue では作れない）。ACTIVE で、最新の同意が true の会員だけ（同じ時刻なら取り消しを優先）。outbox も送る直前に `canReceiveMarketing` で確かめ直し、送れなければ行を消して SKIPPED（summary.consentWithdrawn）にする。確かめてから送り終わるまで（実際の送信サービスなら最大10秒）に確定した取り消しは間に合わない（許容した）
+- 3.4：配信停止のトークンは `UnsubscribeTokens.issue`・`verify`（`u1.{会員ID}.{発行の秒}.{HMAC-SHA256}`。期限なし。無効なら null）。4.x の POST /marketing/unsubscribe は verify を使い、無効なら TOKEN_INVALID（L-51）。issuedAt が返るので、「最新の再同意より前に発行したリンク」を無視するかはそのタスクで決める
+- 3.4：新しい設定 GUEST_WEB_BASE_URL と UNSUBSCRIBE_TOKEN_SECRET は production で必須（https、32文字以上）。dev・test では省略でき、http://localhost:5173 と起動ごとの乱数の鍵になる（再起動すると前の配信停止のリンクは無効になる）
+- 3.4：outbox（毎分）は1通ずつ自分のトランザクションで `FOR UPDATE SKIP LOCKED` を取り、状態を確かめ直してから、行のロックを持ったまま時間切れ（10秒）つきで送る（重なった実行でも二重に送らない。時間切れの後に送信サービスが送り終えると二重に届くことはありうる）。「最大5回」は試行の合計5回（4回目の失敗まで PENDING、5回目で FAILED。TC-MB-270・271）。警告の一覧（7.10）は `MailService.listFailed()` を使う。outbox は操作履歴に記録しない
+- 3.4：送信の間、行のロックと接続を1本持つ（1回の実行で最大2本）。transaction.ts の「外部サービスをトランザクションの中で呼ばない」の例外。実際の送信サービスにつなぐとき（11.x で接続の数を決めるとき）に見直す。作った順に100通ずつ送るので、定期配信（後のフェーズ 21.8）が溜まると取引のメールが遅れる。そのフェーズで MARKETING 以外を先に送るようにする
+- 3.4：開発用の一覧は `GET /api/staff/dev/mails?to=&template=&limit=`（`@RequireRole('FRONT')`）。APP_ENV が development・test のときだけ読み込み（listeners.ts の listenerRootModule）、production では 404。画面のテスト（8.2・11.2）はフロントのスタッフでログインしてから呼ぶ。createTestListenerApp に appEnv・mailSettings・overrides の指定がある
+- 3.4：ホテルの名称・所在地・アクセスは仮の値（hotel-profile.ts。名称「サンプルホテル カナザワ」）で、本番の前に置き換える。メールの訳文はモデルが作ったもので、母語話者の確認を勧める。FEE_CHARGED の文面は「キャンセルまたは変更に伴い」（日程の変更のキャンセル料 DT-M44 にも当てはまる）。HOLD_EXPIRED の「15分」は文面に直接書いている

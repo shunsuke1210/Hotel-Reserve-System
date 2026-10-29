@@ -13,6 +13,9 @@
 //     UPDATE・DELETE の権限を持たない
 //   - マイグレーション用（MIGRATION_DATABASE_URL・TEST_MIGRATION_DATABASE_URL）：テーブルの所有者。
 //     マイグレーションと結合テストの準備（テスト用のデータベースの作成）だけに使い、API の実行には使わない
+//
+// メールのリンクの設定（GUEST_WEB_BASE_URL・UNSUBSCRIBE_TOKEN_SECRET）は loadMailLinkConfig で別に読む
+// （modules/notifications が使う。tasks.md 3.4）。待ち受け口に読み込むモジュールの環境は currentAppEnv で決める。
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -76,22 +79,7 @@ export interface LoadConfigOptions {
 
 /** 設定を読み込んで検証する。誤りがあれば ConfigError を投げる */
 export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
-  const processEnv = options.processEnv ?? process.env;
-  const appEnv = resolveAppEnv(options.appEnv ?? nonEmpty(processEnv.APP_ENV));
-  const envDir = options.envDir ?? findEnvDir(process.cwd());
-
-  const loadedFiles: string[] = [];
-  const fileValues: Record<string, string> = {};
-  for (const fileName of ['.env', `.env.${appEnv}`]) {
-    const path = join(envDir, fileName);
-    if (!existsSync(path)) continue;
-    // Windows のエディタが付ける BOM を取り除く（最初の項目名に混ざらないように）
-    Object.assign(fileValues, parseEnv(stripBom(readFileSync(path, 'utf8'))));
-    loadedFiles.push(fileName);
-  }
-
-  const value = (key: string): string | undefined =>
-    nonEmpty(processEnv[key]) ?? nonEmpty(fileValues[key]);
+  const { appEnv, loadedFiles, value } = readEnvSources(options);
   const result = envSchema(appEnv).safeParse({
     DATABASE_URL: value('DATABASE_URL'),
     TEST_DATABASE_URL: value('TEST_DATABASE_URL'),
@@ -115,6 +103,145 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const migrationDatabaseUrl =
     appEnv === 'test' ? env.TEST_MIGRATION_DATABASE_URL : env.MIGRATION_DATABASE_URL;
   return { appEnv, databaseUrl, migrationDatabaseUrl, loadedFiles };
+}
+
+/** development・test で GUEST_WEB_BASE_URL を省略したときの、宿泊客アプリの URL（pnpm dev:guest のポート） */
+export const DEFAULT_GUEST_WEB_BASE_URL = 'http://localhost:5173';
+
+/** 配信停止のリンクの署名の鍵の最小の長さ（文字） */
+export const MIN_UNSUBSCRIBE_TOKEN_SECRET_LENGTH = 32;
+
+/** メールのリンクの設定（modules/notifications。tasks.md 3.4） */
+export interface MailLinkConfig {
+  readonly appEnv: AppEnv;
+  /**
+   * 宿泊客アプリの URL（確認・再設定・配信停止のリンクの基点。末尾の「/」なし）。GUEST_WEB_BASE_URL。
+   * production では必須で https に限る。development・test で省略すると DEFAULT_GUEST_WEB_BASE_URL
+   */
+  readonly guestWebBaseUrl: string;
+  /**
+   * 定期配信メールの配信停止のリンクの署名の鍵（UNSUBSCRIBE_TOKEN_SECRET。32文字以上）。
+   * production では必須。development・test で省略すると undefined（使う側がプロセスごとの乱数を使う）
+   */
+  readonly unsubscribeTokenSecret: string | undefined;
+}
+
+/**
+ * メールのリンクの設定を読み込んで検証する（読み込みの順序は loadConfig と同じ）。誤りがあれば ConfigError を投げる。
+ * データベースの接続先などは確かめない（それは loadConfig が確かめる）。
+ */
+export function loadMailLinkConfig(options: LoadConfigOptions = {}): MailLinkConfig {
+  const { appEnv, loadedFiles, value } = readEnvSources(options);
+  const production = appEnv === 'production';
+  const result = z
+    .object({
+      GUEST_WEB_BASE_URL: production ? webBaseUrl(true) : webBaseUrl(false).optional(),
+      UNSUBSCRIBE_TOKEN_SECRET: production ? signingSecret() : signingSecret().optional(),
+    })
+    .safeParse({
+      GUEST_WEB_BASE_URL: value('GUEST_WEB_BASE_URL'),
+      UNSUBSCRIBE_TOKEN_SECRET: value('UNSUBSCRIBE_TOKEN_SECRET'),
+    });
+  if (!result.success) {
+    throw new ConfigError(
+      result.error.issues.map((issue) => ({
+        key: String(issue.path[0] ?? '(全体)'),
+        message: issue.message,
+      })),
+      { appEnv, loadedFiles },
+    );
+  }
+  return {
+    appEnv,
+    guestWebBaseUrl: result.data.GUEST_WEB_BASE_URL ?? DEFAULT_GUEST_WEB_BASE_URL,
+    unsubscribeTokenSecret: result.data.UNSUBSCRIBE_TOKEN_SECRET,
+  };
+}
+
+/**
+ * 今の環境（APP_ENV だけを読む。省略時は development）。設定ファイルは読まない（APP_ENV は環境変数だけで指定する）。
+ * 待ち受け口に読み込むモジュール（開発用の機能）を決めるのに使う。想定外の値なら ConfigError を投げる。
+ */
+export function currentAppEnv(
+  processEnv: Readonly<Record<string, string | undefined>> = process.env,
+): AppEnv {
+  return resolveAppEnv(nonEmpty(processEnv.APP_ENV));
+}
+
+interface EnvSources {
+  appEnv: AppEnv;
+  loadedFiles: string[];
+  /** 項目の値（環境変数 → 設定ファイルの順。空の値は undefined） */
+  value(key: string): string | undefined;
+}
+
+/** 環境を決め、その環境の設定ファイルと環境変数を読む */
+function readEnvSources(options: LoadConfigOptions): EnvSources {
+  const processEnv = options.processEnv ?? process.env;
+  const appEnv = resolveAppEnv(options.appEnv ?? nonEmpty(processEnv.APP_ENV));
+  const envDir = options.envDir ?? findEnvDir(process.cwd());
+
+  const loadedFiles: string[] = [];
+  const fileValues: Record<string, string> = {};
+  for (const fileName of ['.env', `.env.${appEnv}`]) {
+    const path = join(envDir, fileName);
+    if (!existsSync(path)) continue;
+    // Windows のエディタが付ける BOM を取り除く（最初の項目名に混ざらないように）
+    Object.assign(fileValues, parseEnv(stripBom(readFileSync(path, 'utf8'))));
+    loadedFiles.push(fileName);
+  }
+  return {
+    appEnv,
+    loadedFiles,
+    value: (key) => nonEmpty(processEnv[key]) ?? nonEmpty(fileValues[key]),
+  };
+}
+
+/** 宿泊客アプリの URL。値は文言に出さない。末尾の「/」を取り除いた形にする */
+function webBaseUrl(requireHttps: boolean) {
+  return z
+    .string({ error: MISSING })
+    .superRefine((url, ctx) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'URL として解釈できません（例：https://hotel.example.com）',
+        });
+        return;
+      }
+      const protocols = requireHttps ? ['https:'] : ['http:', 'https:'];
+      if (!protocols.includes(parsed.protocol)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: requireHttps
+            ? 'https:// で始まる URL にしてください'
+            : 'http:// または https:// で始まる URL にしてください',
+        });
+        return;
+      }
+      if (
+        parsed.username !== '' ||
+        parsed.password !== '' ||
+        parsed.search !== '' ||
+        parsed.hash !== ''
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '利用者名・パスワード・クエリ（?）・ハッシュ（#）のない URL にしてください',
+        });
+      }
+    })
+    .transform((url) => url.replace(/\/+$/, ''));
+}
+
+/** 署名の鍵。値は文言に出さない */
+function signingSecret() {
+  return z.string({ error: MISSING }).min(MIN_UNSUBSCRIBE_TOKEN_SECRET_LENGTH, {
+    error: `${MIN_UNSUBSCRIBE_TOKEN_SECRET_LENGTH}文字以上の推測できない値にしてください`,
+  });
 }
 
 /**
