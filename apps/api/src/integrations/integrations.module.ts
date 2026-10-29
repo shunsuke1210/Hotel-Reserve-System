@@ -33,3 +33,11 @@ const processWideMocks = {
   exports: [PaymentGateway, Translator, MailSender],
 })
 export class IntegrationsModule {}
+
+/**
+ * DI の外のスクリプト（初期データの投入 pnpm db:seed）が使う翻訳の実装。待ち受け口と同じものを結び付ける
+ * （本物の翻訳サービスに移るときも、ここと上の providers だけを差し替える）。
+ */
+export function scriptTranslator(): Translator {
+  return processWideMocks.translator;
+}

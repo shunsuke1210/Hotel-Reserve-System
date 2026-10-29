@@ -4,7 +4,7 @@ import { Injectable, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createTestListenerApp } from '../test/listener-app.js';
-import { IntegrationsModule } from './integrations.module.js';
+import { IntegrationsModule, scriptTranslator } from './integrations.module.js';
 import { MailSender } from './mail/mail-sender.port.js';
 import { MockMailSender } from './mail/mock-mail-sender.js';
 import { MockPaymentGateway } from './payment/mock-payment.gateway.js';
@@ -34,6 +34,12 @@ describe('IntegrationsModule（外部サービスのインターフェースに�
     expect(service.translator).toBeInstanceOf(MockTranslator);
     expect(service.mail).toBeInstanceOf(MockMailSender);
     await expect(service.translator.translate('朝食', 'ko')).resolves.toBe('[ko] 朝食');
+  });
+
+  it('[16.4] DI の外のスクリプト（初期データの投入）は、待ち受け口と同じ翻訳の実装を使う', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [IntegrationsModule] }).compile();
+    expect(scriptTranslator()).toBe(moduleRef.get(Translator));
+    await expect(scriptTranslator().translate('朝食', 'en')).resolves.toBe('[en] 朝食');
   });
 
   it('テストでは、インターフェースを指定してテスト用の実装に差し替えられる', async () => {

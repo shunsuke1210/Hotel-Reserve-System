@@ -1,4 +1,5 @@
-// pnpm db:seed：初期データ（客室タイプ・部屋・料金の版1・祝日・宿泊約款・振込先）を投入する（tasks.md 1.5）。
+// pnpm db:seed：初期データ（客室タイプ・部屋・料金の版1・祝日・宿泊約款・振込先と、客室タイプ・約款・オプションの
+// 翻訳文）を投入する（tasks.md 1.5・3.5）。翻訳は待ち受け口と同じ実装（MVP では模擬の翻訳）で行う。
 //
 //   pnpm db:seed                    開発用のデータベース（APP_ENV の既定は development）
 //   APP_ENV=production pnpm db:seed  本番（.env.production か環境変数の接続先）
@@ -6,6 +7,7 @@
 // 先に pnpm db:migrate でマイグレーションを適用しておく。何度実行してもよい（ない行だけを追加し、既にある行は変えない）。
 // pnpm db:migrate と同じく、テーブルの所有者（MIGRATION_DATABASE_URL）で接続する。
 // 結合テストは、テストごとのデータベースに seedInitialData（seed.ts）で投入するので、このスクリプトは使わない。
+import { scriptTranslator } from '../../src/integrations/integrations.module.js';
 import {
   ConfigError,
   describeDatabaseTarget,
@@ -23,6 +25,7 @@ const LABELS: Record<keyof SeedSummary, string> = {
   holidays: '祝日',
   termsDocuments: '宿泊約款',
   hotelSettings: 'ホテルの設定',
+  translations: '翻訳文',
 };
 
 async function main(): Promise<void> {
@@ -37,7 +40,10 @@ async function main(): Promise<void> {
   console.log(`初期データを投入します（${config.appEnv}：${describeDatabaseTarget(ownerUrl)}）`);
   const prisma = new PrismaService(ownerUrl);
   try {
-    const summary = await seedInitialData(prisma, { now: new Date() });
+    const summary = await seedInitialData(prisma, {
+      now: new Date(),
+      translator: scriptTranslator(),
+    });
     for (const [key, label] of Object.entries(LABELS) as [keyof SeedSummary, string][]) {
       console.log(`  ${label}：${summary[key]}件を追加`);
     }

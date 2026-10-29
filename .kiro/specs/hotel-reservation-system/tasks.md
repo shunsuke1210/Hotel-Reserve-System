@@ -132,7 +132,7 @@
   - _Requirements: 15.1, 15.6, 15.7, 16.2, 15.8_
   - _Boundary: MailService_
 
-- [ ] 3.5 (P) 客室・約款の内容と翻訳文を提供する
+- [x] 3.5 (P) 客室・約款の内容と翻訳文を提供する
   - 客室タイプの説明・オプション名・宿泊約款を、日本語の原文と、機械翻訳した4言語の翻訳文（保存済み、編集済みならその文）で返す
   - 初期データの投入のときに翻訳文を作って保存する
   - 完了状態：言語を指定して客室タイプの一覧と宿泊約款を取得すると、その言語の翻訳文が返る
@@ -620,3 +620,9 @@
 - 3.4：送信の間、行のロックと接続を1本持つ（1回の実行で最大2本）。transaction.ts の「外部サービスをトランザクションの中で呼ばない」の例外。実際の送信サービスにつなぐとき（11.x で接続の数を決めるとき）に見直す。作った順に100通ずつ送るので、定期配信（後のフェーズ 21.8）が溜まると取引のメールが遅れる。そのフェーズで MARKETING 以外を先に送るようにする
 - 3.4：開発用の一覧は `GET /api/staff/dev/mails?to=&template=&limit=`（`@RequireRole('FRONT')`）。APP_ENV が development・test のときだけ読み込み（listeners.ts の listenerRootModule）、production では 404。画面のテスト（8.2・11.2）はフロントのスタッフでログインしてから呼ぶ。createTestListenerApp に appEnv・mailSettings・overrides の指定がある
 - 3.4：ホテルの名称・所在地・アクセスは仮の値（hotel-profile.ts。名称「サンプルホテル カナザワ」）で、本番の前に置き換える。メールの訳文はモデルが作ったもので、母語話者の確認を勧める。FEE_CHARGED の文面は「キャンセルまたは変更に伴い」（日程の変更のキャンセル料 DT-M44 にも当てはまる）。HOLD_EXPIRED の「15分」は文面に直接書いている
+- 3.5：公開用 API の `GET /api/guest/room-types` と `GET /api/guest/terms/current`（`lang` の指定が会員の preferred_locale・Accept-Language より優先。指定がなければ requestLocale(req)。誤った値は VALIDATION_FAILED）。応答は contracts の RoomTypeListResponse（客室タイプ＋ options：朝食・アーリー・レイトの名称）と TermsDocumentResponse。今の約款は published_at ≤ 今の最大の版（なければ NOT_FOUND）。写真の列はないので、画面は code で写真を対応させる
+- 3.5：翻訳文の行は ROOM_TYPE（room_types.id／name・bed_description・description）、TERMS_DOCUMENT（terms_documents.id／body）、BOOKING_OPTION（オプションのコード／name。日本語の名称はコードの定数 BOOKING_OPTION_NAMES_JA）。source_hash は日本語の原文の SHA-256
+- 3.5：ja は原文。ほかの言語は、is_edited の行か、source_hash が今の原文と同じ行を使う。行がない・原文が変わった機械翻訳は、GET の中で Translator で訳して保存する（追加は skipDuplicates、更新は「is_edited=false かつ古い hash」のときだけ。同時の要求とスタッフの編集を上書きしない守りにテストがある）。直した行で原文だけが変わった場合は直した文のまま（作り直しは 21.6）。Translator が失敗したら、その文だけ日本語の原文を返して保存しない（応答の locale は要求の言語のまま）
+- 3.5：社内用の待ち受け口には API を出していない。メールに客室タイプの名称を会員の言語で入れるタスクは、ルートを持たない ContentModule を import して `ContentService.roomTypeName(tx, roomTypeId, locale)` を使う（Translator を呼ばない。訳がなければ日本語）
+- 3.5：seed は基本のデータのトランザクションの後に、ない翻訳文だけを Translator（`scriptTranslator()`。待ち受け口と同じ結び付け）で作る（外部サービスをトランザクションの中で呼ばない）。翻訳の段だけ失敗しても、もう一度 seed を実行すればよい。開発用 DB では初回100件
+- 3.5：本物の翻訳サービスにつなぐとき（11.x 以降）の見直し：未ログインの GET からの翻訳に時間切れを付ける、失敗中に要求のたびに呼び直さない、1回の要求で最大24件を並列に訳す、seed の初回は100件を一度に訳す（間隔の調整が要るかもしれない）

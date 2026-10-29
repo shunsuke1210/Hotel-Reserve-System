@@ -4,8 +4,10 @@
 //
 // 期待する値は brief.md（FC-02・FC-04・PR-11〜PR-15・TX-02・RS-17・基本料金の表）と design.md から書き写したもので、
 // 初期データのファイルからは読まない（同じ誤りを見逃さないため）。
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { seedInitialData } from '../../../prisma/seed/seed.js';
+import { seedInitialData, type SeedSummary } from '../../../prisma/seed/seed.js';
+import { TestTranslator } from '../../integrations/testing/test-translator.js';
 import { PrismaService } from '../../shared/prisma/prisma.service.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 
@@ -118,12 +120,27 @@ const HOLIDAYS_2026 = [
   ['2026-11-23', '勤労感謝の日'],
 ];
 
+/** 翻訳先の4言語（日本語以外。要件 16.1） */
+const TRANSLATION_LOCALES = ['en', 'ko', 'zh-Hans', 'zh-Hant'];
+
+/** 翻訳するオプションの名称（要件 4.10 のオプション。design.md「初期データ」の「朝食などの名称」） */
+const OPTION_NAMES = [
+  ['BREAKFAST', '朝食'],
+  ['EARLY_CHECKIN', 'アーリーチェックイン'],
+  ['LATE_CHECKOUT', 'レイトチェックアウト'],
+] as const;
+
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
+
 let db: TestDatabase;
 let owner: PrismaService;
+/** 初期データの投入で使う翻訳（模擬の翻訳と同じ文を返し、呼び出しを記録する） */
+const translator = new TestTranslator();
+let firstSummary: SeedSummary;
 
 /** 初期データの投入（pnpm db:seed と同じく、テーブルの所有者の接続で行う） */
 function seed() {
-  return seedInitialData(owner, { now: new Date('2026-10-23T09:00:00+09:00') });
+  return seedInitialData(owner, { now: new Date('2026-10-23T09:00:00+09:00'), translator });
 }
 
 async function tableCounts() {
@@ -144,7 +161,7 @@ async function tableCounts() {
 beforeAll(async () => {
   db = await createTestDatabase();
   owner = new PrismaService(db.ownerUrl);
-  await seed();
+  firstSummary = await seed();
 });
 
 afterAll(async () => {
@@ -349,6 +366,66 @@ describe('初期データ：祝日・宿泊約款・ホテルの設定', () => {
   });
 });
 
+describe('初期データ：翻訳文（要件 16.4）', () => {
+  /** 翻訳文の行を（言語ごとの文、原文の指紋、編集の有無）で返す */
+  async function translationsOf(entityType: string, entityId: string, field: string) {
+    const rows = await db.prisma.translation.findMany({ where: { entityType, entityId, field } });
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.locale,
+        { text: row.text, sourceHash: row.sourceHash, isEdited: row.isEdited },
+      ]),
+    );
+  }
+
+  /** 模擬の翻訳（[言語] 原文）の4言語の行 */
+  function machineTranslations(textJa: string) {
+    return Object.fromEntries(
+      TRANSLATION_LOCALES.map((locale) => [
+        locale,
+        { text: `[${locale}] ${textJa}`, sourceHash: sha256(textJa), isEdited: false },
+      ]),
+    );
+  }
+
+  it('[16.4] 客室タイプごとに、名前・寝具・説明の4言語の機械翻訳の文が、原文の指紋とともに保存されている', async () => {
+    const types = await db.prisma.roomType.findMany();
+    expect(types).toHaveLength(7);
+    for (const type of types) {
+      expect(await translationsOf('ROOM_TYPE', type.id, 'name'), type.code).toEqual(
+        machineTranslations(type.nameJa),
+      );
+      expect(await translationsOf('ROOM_TYPE', type.id, 'bed_description'), type.code).toEqual(
+        machineTranslations(type.bedDescriptionJa),
+      );
+      expect(await translationsOf('ROOM_TYPE', type.id, 'description'), type.code).toEqual(
+        machineTranslations(type.descriptionJa),
+      );
+    }
+  });
+
+  it('[4.14][16.4] 宿泊約款の版1の本文の、4言語の機械翻訳の文が保存されている', async () => {
+    const terms = await db.prisma.termsDocument.findUniqueOrThrow({ where: { version: 1 } });
+    expect(await translationsOf('TERMS_DOCUMENT', terms.id, 'body')).toEqual(
+      machineTranslations(terms.bodyJa),
+    );
+  });
+
+  it('[4.10][16.4] オプション（朝食・アーリーチェックイン・レイトチェックアウト）の名称の、4言語の機械翻訳の文が保存されている', async () => {
+    for (const [code, nameJa] of OPTION_NAMES) {
+      expect(await translationsOf('BOOKING_OPTION', code, 'name'), code).toEqual(
+        machineTranslations(nameJa),
+      );
+    }
+  });
+
+  it('[16.4] 翻訳文は全部で100件（客室タイプ 7×3項目×4言語、約款 1×4言語、オプション 3×4言語）で、日本語の行はない', async () => {
+    expect(await db.prisma.translation.count()).toBe(7 * 3 * 4 + 4 + 3 * 4);
+    expect(await db.prisma.translation.count({ where: { locale: 'ja' } })).toBe(0);
+    expect(firstSummary.translations).toBe(100);
+  });
+});
+
 describe('初期データの再投入', () => {
   it('[9.2][21.7] 2回目の投入では行が増えず、既にある行（部屋の状態・料金の版・設定）を書き換えない', async () => {
     const before = await tableCounts();
@@ -359,6 +436,7 @@ describe('初期データの再投入', () => {
       roomTypePrices: 7,
       termsDocuments: 1,
       hotelSettings: 5,
+      translations: 100,
     });
 
     // 運用で変わった値（部屋の状態・振込先）と、料金の版の行
@@ -372,7 +450,10 @@ describe('初期データの再投入', () => {
     });
     const version = await db.prisma.rateVersion.findFirstOrThrow();
 
-    await expect(seed()).resolves.toBeDefined();
+    translator.reset();
+    await expect(seed()).resolves.toMatchObject({ roomTypes: 0, rooms: 0, translations: 0 });
+    // 翻訳文がすべてあれば、翻訳サービスを呼ばない
+    expect(translator.calls).toEqual([]);
 
     expect(await tableCounts()).toEqual(before);
     expect(await db.prisma.room.findUniqueOrThrow({ where: { roomNumber: 501 } })).toEqual(room501);
@@ -384,5 +465,46 @@ describe('初期データの再投入', () => {
       ).value,
     ).toBe('変更した支店');
     expect(await db.prisma.rateVersion.findFirstOrThrow()).toEqual(version);
+  });
+
+  it('[16.4][21.5] 再投入では、ない翻訳文だけを翻訳して加え、スタッフが直した文（is_edited）や既にある行は書き換えない', async () => {
+    const terms = await db.prisma.termsDocument.findUniqueOrThrow({ where: { version: 1 } });
+    const breakfastEn = {
+      entityType_entityId_field_locale: {
+        entityType: 'BOOKING_OPTION',
+        entityId: 'BREAKFAST',
+        field: 'name',
+        locale: 'en',
+      },
+    };
+    const edited = await db.prisma.translation.update({
+      where: breakfastEn,
+      data: { text: 'Breakfast', isEdited: true },
+    });
+    await db.prisma.translation.delete({
+      where: {
+        entityType_entityId_field_locale: {
+          entityType: 'TERMS_DOCUMENT',
+          entityId: terms.id,
+          field: 'body',
+          locale: 'ko',
+        },
+      },
+    });
+    const others = await db.prisma.translation.findMany({ orderBy: { id: 'asc' } });
+
+    translator.reset();
+    await expect(seed()).resolves.toMatchObject({ translations: 1 });
+
+    expect(translator.calls).toEqual([{ textJa: terms.bodyJa, to: 'ko' }]);
+    expect(await db.prisma.translation.findUniqueOrThrow({ where: breakfastEn })).toEqual(edited);
+    const after = await db.prisma.translation.findMany({ orderBy: { id: 'asc' } });
+    expect(after).toHaveLength(100);
+    expect(after).toEqual(expect.arrayContaining(others));
+    expect(after.find((row) => row.entityId === terms.id && row.locale === 'ko')).toMatchObject({
+      text: `[ko] ${terms.bodyJa}`,
+      sourceHash: sha256(terms.bodyJa),
+      isEdited: false,
+    });
   });
 });

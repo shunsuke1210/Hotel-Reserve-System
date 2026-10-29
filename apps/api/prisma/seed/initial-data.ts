@@ -33,7 +33,7 @@ export interface SeedRoomType {
   roomCount: number;
   /** 料金の版1の基本料金（税抜・大人1人1泊） */
   basePriceExcl: number;
-  /** 説明（仮の文章。翻訳文は 3.5 で作る） */
+  /** 説明（仮の文章。4言語の翻訳文は seed.ts の投入のときに作る） */
   descriptionJa: string;
 }
 
