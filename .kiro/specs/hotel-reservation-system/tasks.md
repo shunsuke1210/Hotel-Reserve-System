@@ -139,7 +139,7 @@
   - _Requirements: 4.14, 16.4_
   - _Boundary: ContentService_
 
-- [ ] 3.6 (P) お知らせの記録と、清掃時間の判定を作る
+- [x] 3.6 (P) お知らせの記録と、清掃時間の判定を作る
   - お知らせを種類・対象・期間とともに作り、同じ重複のまとめのキーの未解決のお知らせがあれば作らない。解決済みにする操作と、未解決の件数・一覧の取得を用意する
   - 部屋と日付を指定すると、その日の前の客のチェックアウト時刻（既定12:00、レイトならその時刻）から次の客のチェックイン時刻（既定15:00、アーリーならその時刻）までが2時間未満かを判定し、そうならお知らせを作る判定の処理を用意する（ちょうど2時間は作らない）。この処理は、予約・変更・時間外・移動・入れ替えの各タスクから呼ぶ
   - 完了状態：同じ客室タイプ・同じ日程のお知らせを2回作ろうとしても未解決は1件のままで、清掃時間の判定が設計の例（12:00→15:00 なし、12:00→14:00 なし、12:00→13:00 あり、14:00→15:00 あり、15:00→13:00 あり）のとおりになる
@@ -626,3 +626,10 @@
 - 3.5：社内用の待ち受け口には API を出していない。メールに客室タイプの名称を会員の言語で入れるタスクは、ルートを持たない ContentModule を import して `ContentService.roomTypeName(tx, roomTypeId, locale)` を使う（Translator を呼ばない。訳がなければ日本語）
 - 3.5：seed は基本のデータのトランザクションの後に、ない翻訳文だけを Translator（`scriptTranslator()`。待ち受け口と同じ結び付け）で作る（外部サービスをトランザクションの中で呼ばない）。翻訳の段だけ失敗しても、もう一度 seed を実行すればよい。開発用 DB では初回100件
 - 3.5：本物の翻訳サービスにつなぐとき（11.x 以降）の見直し：未ログインの GET からの翻訳に時間切れを付ける、失敗中に要求のたびに呼び直さない、1回の要求で最大24件を並列に訳す、seed の初回は100件を一度に訳す（間隔の調整が要るかもしれない）
+- 3.6：お知らせは modules/notices の NoticeService。作る：`recordFragmentedInventory`（5.x の P-02 手順5）・`recordSplitFloors`（予約番号のない予約は Error。L-20）・清掃時間の判定。重複のまとめのキーは ID で作る（FRAG:{客室タイプID}:{到着日}:{出発日}、SPLIT:{予約ID}、GAP:{部屋ID}:{日付}）。INSERT … ON CONFLICT DO NOTHING なので、呼び出し側のトランザクションの中で重複しても中断しない。解決した後は同じキーで作り直せる。作る・判定する処理は操作履歴を書かない（呼び出し側の1行に含める）
+- 3.6：解決は `resolve(actor, noticeId)`。tx を受け取らず、自分のトランザクションで resolved_at・resolved_by と操作履歴 NOTICE_RESOLVE（対象 notice）を1行書く。7.6 の POST /notices/{id}/resolve はコントローラーから呼ぶだけでよい（別のトランザクションの中で呼ばない）。解決済みなら changed:false で操作履歴も書かない。ない ID・UUID でない ID は NOT_FOUND。件数は `countOpen`、一覧は `listOpen`（新しい順。客室タイプの名称・部屋番号・予約番号つき。API の契約の型は 7.6 で作る）。メッセージは日本語で個人情報なし（F03・TC-OP-115 の形。日付は M/D）
+- 3.6：清掃時間の判定は `checkTurnoverGap(tx, roomId, date)`・`checkTurnoverGaps(tx, points)`・`checkTurnoverGapsForReservation(tx, reservationId, { reservationRoomIds?, edges?: ARRIVAL|DEPARTURE|BOTH })`。時刻の計算は domain/turnover（純粋な関数。2時間未満で作り、ちょうど2時間は作らない）。前の客＝その部屋の前日の夜、次の客＝当日の夜で、数えるのは CONFIRMED・CHECKED_IN・CHECKED_OUT の予約の、取り消していない予約の部屋の BOOKED の夜（HOLD・NO_SHOW は数えない。連泊の途中は判定しない）。レイトは前の客の出発日、アーリーは次の客の到着日だけに当てる（途中で部屋を移った客は既定の 12:00・15:00。DT-M14）。TURNOVER_GAP の room_type_id・reservation_id は空
+- 3.6 → 5.7・7.2：確定の処理は、room_nights を BOOKED、予約を CONFIRMED にした後に、同じトランザクションで `checkTurnoverGapsForReservation` を呼ぶ（前に呼ぶとお知らせが作られない）
+- 3.6 → 6.2・7.3・7.5：要件 10.11 は「変更によって2時間未満になったとき」。予約全体（edges BOTH）で判定し直すと、変わっていない切れ目の、スタッフが解決済みのお知らせも作り直す。変わった部屋・切れ目だけを `reservationRoomIds`・`edges` で渡す（変更の前後で `turnoverPointsOf` を比べる。時間外は実際に値が変わったときだけ。PUT off-hours は丸ごと置き換え（L-46）なので、同じ値の送り直しで作り直さない）
+- 3.6 → 5.7・6.2・7.3・7.5：READ COMMITTED では、同じ部屋の前後の予約を別々のトランザクションで同時に変える・確定すると、どちらも相手の変更を見ず、お知らせを見落とすことがある（設計に定めがなく、まれなので今は直していない）。直すなら checkTurnoverGap の中で rooms の行を部屋の ID の順に `FOR UPDATE` でロックしてから夜を読む
+- 3.6：CHECK_OUT_HOUR=12 を domain/calendar に加えた。notifications/hotel-profile.ts の checkOut: 12 はまだ直接書いている（触るときに CHECK_OUT_HOUR にそろえる）

@@ -4,11 +4,13 @@
 // AuditModule：操作履歴の記録（スタッフの操作と定時処理の操作。tasks.md 3.3）。
 // NotificationsModule：メールの作成（MailService）と送信の部品（送信の定時処理 outbox は JobsModule に載せる。tasks.md 3.4）。
 // 開発用のメールの一覧（DevMailsModule）は、開発環境でだけ listeners.ts の listenerRootModule が加える。
-// 後のタスクで auth（スタッフ）・front-desk・housekeeping・maintenance・notices・surcharges を加える。
+// NoticesModule：お知らせの記録・解決と清掃時間の判定（NoticeService。URL はまだない：一覧・解決の API は 7.6。tasks.md 3.6）。
+// 後のタスクで auth（スタッフ）・front-desk・housekeeping・maintenance・surcharges を加える。
 import { Module } from '@nestjs/common';
 import { IntegrationsModule } from './integrations/integrations.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { JobsModule } from './modules/jobs/jobs.module.js';
+import { NoticesModule } from './modules/notices/notices.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AuditModule } from './shared/audit/audit.module.js';
 import { ClockModule } from './shared/clock/clock.module.js';
@@ -25,6 +27,7 @@ import { SessionModule } from './shared/session/session.module.js';
     AuditModule,
     SessionModule.forStaff(),
     NotificationsModule,
+    NoticesModule,
     HealthModule,
     JobsModule,
   ],

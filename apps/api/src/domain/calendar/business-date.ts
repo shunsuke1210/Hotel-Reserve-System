@@ -13,6 +13,9 @@ export const OPERATING_DAY_START_HOUR = 1;
 /** チェックイン時刻（15:00。brief.md FC-03） */
 export const CHECK_IN_HOUR = 15;
 
+/** チェックアウト時刻（12:00。brief.md FC-03） */
+export const CHECK_OUT_HOUR = 12;
+
 /** 無料キャンセルの期限：到着日のチェックイン時刻の何時間前か（要件 8.3、brief.md PY-07） */
 export const FREE_CANCELLATION_HOURS_BEFORE_CHECK_IN = 48;
 
