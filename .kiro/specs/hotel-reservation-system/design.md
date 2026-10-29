@@ -950,6 +950,8 @@ erDiagram
 | L-55 | メールアドレスの変更（DT-M4）では、確認前の新しいアドレスを auth_tokens.new_email に入れ、purpose は VERIFY_EMAIL を使う。確認が済んだ時点で members.email を切り替える（そのときにも有効な会員の間の重複を確かめる）。会員登録の確認では new_email は空（DT-L4） |
 | L-56 | 会員ごとの決済待ちは1件までの部分一意インデックスは、channel＝WEB の予約だけを対象にする（DT-M10：フロントの登録には当てない。フロントの登録も確保を経由するため：P-04 手順6） |
 | L-57 | DT-M54 のため、charge_lines に early_bird_applied（その明細に早期割を当てたか。boolean）を加える。明細を作るとき（5.4）に入れ、キャンセルの判定（CancellationPolicy）に渡す。マイグレーションは 5.4 で足す（実装のタスク 2.3 で見つかった点） |
+| L-58 | チェックアウトの操作で今日から故障中の部屋を OUT_OF_ORDER にするときの変更前の状態は、CLEANING_READY にするときと同じ範囲（CHECKED_IN・STAY_*・DEPARTURE_PENDING）とする。9:00 より前のチェックアウト（ST-05）では部屋がまだ STAY_* のため。P-12 の表の CHECKED_IN・DEPARTURE_PENDING だけの行は書き漏らしで、P-10 手順4・要件 13.6 に合わせた解釈（実装のタスク 3.7 で見つかった点。DT-L4） |
+| L-59 | POST /rooms/{id}/status で今と同じ状態を求められたとき（ボタンの二度押しなど）は、何も変えずに成功を返す。変更の時刻・変えた人・操作履歴も変えない（実装のタスク 3.7 で決定。DT-L4） |
 
 ## Error Handling
 

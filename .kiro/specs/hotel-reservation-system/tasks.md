@@ -99,7 +99,7 @@
   - _Requirements: 8.7, 8.8_
   - _Boundary: GroupEvaluator_
 
-- [ ] 3. 共通のサービス
+- [x] 3. 共通のサービス
 - [x] 3.1 セッションと認証・権限の共通部品を作る
   - 会員とスタッフで別の種類のセッションをデータベースに保存し、Cookie（HttpOnly・Secure・SameSite）で受け渡す。ログインの成功時に ID を作り直す
   - 会員用・スタッフ用の認証の確認、役割の判定（管理者＞フロント＞清掃員）、他サイトからの要求の拒否（独自のヘッダー）、ログインの回数制限、パスワードのハッシュ化を入れる
@@ -146,7 +146,7 @@
   - _Requirements: 10.9, 10.11, 10.12, 10.13, 10.15_
   - _Boundary: NoticeService_
 
-- [ ] 3.7 部屋の状態の変更を作る
+- [x] 3.7 部屋の状態の変更を作る
   - 部屋の状態のルールに従って状態を変え、変更の時刻と変更した人（または定時処理・チェックインなどの操作）を、操作履歴の記録（3.3）を使って記録する
   - 業務の操作（チェックイン・チェックアウト・故障中の設定と終了・定時処理）からの変更を受け付ける入口を用意し、後のタスクはこの入口だけを使う
   - 完了状態：清掃員の役割で「その他」グループの中の変更を求めると断られ、業務の操作からの「清掃完了→チェックイン済み」は記録つきで反映される結合テストが通る
@@ -631,5 +631,12 @@
 - 3.6：清掃時間の判定は `checkTurnoverGap(tx, roomId, date)`・`checkTurnoverGaps(tx, points)`・`checkTurnoverGapsForReservation(tx, reservationId, { reservationRoomIds?, edges?: ARRIVAL|DEPARTURE|BOTH })`。時刻の計算は domain/turnover（純粋な関数。2時間未満で作り、ちょうど2時間は作らない）。前の客＝その部屋の前日の夜、次の客＝当日の夜で、数えるのは CONFIRMED・CHECKED_IN・CHECKED_OUT の予約の、取り消していない予約の部屋の BOOKED の夜（HOLD・NO_SHOW は数えない。連泊の途中は判定しない）。レイトは前の客の出発日、アーリーは次の客の到着日だけに当てる（途中で部屋を移った客は既定の 12:00・15:00。DT-M14）。TURNOVER_GAP の room_type_id・reservation_id は空
 - 3.6 → 5.7・7.2：確定の処理は、room_nights を BOOKED、予約を CONFIRMED にした後に、同じトランザクションで `checkTurnoverGapsForReservation` を呼ぶ（前に呼ぶとお知らせが作られない）
 - 3.6 → 6.2・7.3・7.5：要件 10.11 は「変更によって2時間未満になったとき」。予約全体（edges BOTH）で判定し直すと、変わっていない切れ目の、スタッフが解決済みのお知らせも作り直す。変わった部屋・切れ目だけを `reservationRoomIds`・`edges` で渡す（変更の前後で `turnoverPointsOf` を比べる。時間外は実際に値が変わったときだけ。PUT off-hours は丸ごと置き換え（L-46）なので、同じ値の送り直しで作り直さない）
-- 3.6 → 5.7・6.2・7.3・7.5：READ COMMITTED では、同じ部屋の前後の予約を別々のトランザクションで同時に変える・確定すると、どちらも相手の変更を見ず、お知らせを見落とすことがある（設計に定めがなく、まれなので今は直していない）。直すなら checkTurnoverGap の中で rooms の行を部屋の ID の順に `FOR UPDATE` でロックしてから夜を読む
+- 3.6 → 5.7・6.2・7.3・7.5：READ COMMITTED では、同じ部屋の前後の予約を別々のトランザクションで同時に変える・確定すると、どちらも相手の変更を見ず、お知らせを見落とすことがある（設計に定めがなく、まれなので今は直していない）。直すなら checkTurnoverGap の中で rooms の行を部屋の ID の順に `FOR NO KEY UPDATE` でロックしてから夜を読む（3.7 の RoomStatusService.lockRooms と同じ方式）
 - 3.6：CHECK_OUT_HOUR=12 を domain/calendar に加えた。notifications/hotel-profile.ts の checkOut: 12 はまだ直接書いている（触るときに CHECK_OUT_HOUR にそろえる）
+- 3.7：部屋の状態は modules/housekeeping の RoomStatusService。手動の変更は `changeByStaff(staff, roomId, to)`（7.11 の POST /rooms/{id}/status のコントローラーはこれを呼ぶだけ）。自分のトランザクションで部屋をロックし、canChangeManually で判定し、status・status_changed_at・status_changed_by を更新して操作履歴 ROOM_STATUS_CHANGE（対象は部屋）を1行書く。断るときは STATUS_TRANSITION_NOT_ALLOWED（422。details に reason・from・to）。今と同じ状態なら何もせず changed:false（L-59）
+- 3.7：業務の操作は `applyOperation(tx, actor, operation, [{roomId, to}], { at? })` だけを使う（操作は CHECK_IN・ROOM_MOVE・CHECK_OUT・OUT_OF_ORDER_START・OUT_OF_ORDER_END・MORNING_STATUS。ROOM_MOVE は DT-M14 の移し先をチェックイン済みにするために加えた。7.3 はこれを使う）。呼び出し側のトランザクションの中で変え、操作履歴は書かずに AuditRoomStatusChange[] を返すので、呼び出し側の1行の detail.roomStatusChanges に入れる。MORNING_STATUS は定時処理の actor、ほかはスタッフの actor でなければ断る。同じ状態の要求は変えずに戻り値から除く
+- 3.7：操作ごとの断り方：CHECK_IN・ROOM_MOVE で清掃完了でない部屋は ROOM_NOT_CLEAN（業務エラー。7.7 の DT-M38 の順番の確認の後の最後の守り）。CHECK_OUT・OUT_OF_ORDER_END・MORNING_STATUS で表にない変更は RoomStatusTransitionError（呼び出し側の誤り）。そのため 7.8・7.9・7.12 は先に `lockRooms(tx, roomIds)` で今の状態を読み、表にある変更だけを渡す。特に TC-OP-179（故障中のまま滞在した部屋のチェックアウト）では清掃可を求めず、故障中のまま（求めないか OUT_OF_ORDER を求める）にする。OUT_OF_ORDER_START はどの状態からでも
+- 3.7：チェックアウトで故障中にするときの変更前の状態は、清掃可にするときと同じ範囲（L-58。9:00 より前のチェックアウトでは部屋がまだ STAY_*）
+- 3.7：9:00 の処理（MORNING_STATUS）で許す変更：→ NO_ARRIVAL は空室の清掃グループの部屋から、→ DEPARTURE_PENDING・STAY_DIRTY はチェックイン済み・連泊グループの部屋から、→ OUT_OF_ORDER はどの状態からでも。NO_ARRIVAL を空室の清掃グループに限ったこと（故障中・チェックアウト待ちのままの部屋などはそのまま）は業務ルールとして利用者に確認中。7.12 は対象の部屋の状態を確かめてから渡す（表にない変更を渡すと、その対象が失敗として数えられ job_runs が FAILED になる）。今日チェックアウトする客がいる部屋を 9:00 に故障中にしない判断（13.6）も 7.12 で行う
+- 3.7：ロックの決まり：部屋の行は `FOR NO KEY UPDATE`（rooms を参照する行の追加の外部キーの確認と衝突させない）で、部屋の ID の昇順に取る。予約と部屋の両方をロックする処理は 予約 → 部屋 の順にする。逆の順の2室の同時の操作と、外部キーの確認を待たせないことにテストがある
+- 3.7：shared/audit/audit-log.integration.test.ts には、部屋の状態を変える部分の仮の代わり（changeRoomStatus）が残っている。部屋の状態の変更が要るテストを新しく書くときは RoomStatusService を使う
